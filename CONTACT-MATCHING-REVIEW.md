@@ -80,3 +80,5 @@ want to preserve recognition data. No private credentials are included here.
 - Native ML Kit contact-photo inference and long background scheduling still require real-device acceptance.
 - Detailed validation summary: validation/contact-upgrade.json.
 
+
+The current 0.8.2 startup/background changes and checks are documented in BACKGROUND-STARTUP-REVIEW.md and validation/background-upgrade.json.

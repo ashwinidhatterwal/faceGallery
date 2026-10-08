@@ -115,7 +115,7 @@ class MainActivity : Activity() {
     }
     override fun onResume() {
         super.onResume();if(isFinishing)return;active=true
-        if(currentAccess()==Access.NONE){galleryRoot.visibility=View.INVISIBLE;if(!permissionInFlight)requestPhotoAccess();return}
+        if(requestStartupAccess())return
         galleryRoot.visibility=View.VISIBLE
         AutoPeople.ensure(this,0)
         // A first installation has no index to inspect. Establish the service before a long media query.
@@ -288,7 +288,7 @@ class MainActivity : Activity() {
         }
     }
     private fun launchAutomaticRecognition(){
-        if(!active || isDestroyed || isFinishing || !AutoPeople.canStartVisible(this))return
+        if(!active || permissionInFlight || isDestroyed || isFinishing || !AutoPeople.canStartVisible(this))return
         AutoPeople.ensure(this,0) // Durable recovery remains scheduled if the process is killed.
         runCatching{startForegroundService(Intent(this,FaceScanService::class.java).setAction(FaceScanService.AUTO))}
             .onFailure{AutoPeople.request(this,0)}
@@ -368,6 +368,23 @@ class MainActivity : Activity() {
         Build.VERSION.SDK_INT >= 34 && checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED -> Access.PARTIAL
         else -> Access.NONE
     }
+    /** Ask once on first launch/update; a declined optional permission stays optional. */
+    private fun requestStartupAccess():Boolean {
+        if(permissionInFlight)return currentAccess()==Access.NONE
+        val prefs=getSharedPreferences("startup-access",0)
+        val contacts=ContactRecognition.enabled(this) && !ContactRecognition.allowed(this) && !prefs.getBoolean("contacts-asked",false)
+        if(currentAccess()!=Access.NONE && !contacts)return false
+        val permissions=mutableListOf<String>()
+        if(currentAccess()==Access.NONE){
+            galleryRoot.visibility=View.INVISIBLE
+            permissions.add(readPermission())
+            if(Build.VERSION.SDK_INT>=34)permissions.add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        }
+        if(contacts){permissions.add(Manifest.permission.READ_CONTACTS);prefs.edit().putBoolean("contacts-asked",true).apply()}
+        permissionInFlight=true
+        requestPermissions(permissions.toTypedArray(),1001)
+        return currentAccess()==Access.NONE
+    }
     private fun requestPhotoAccess() {
         if(permissionInFlight)return
         permissionInFlight=true
@@ -380,6 +397,8 @@ class MainActivity : Activity() {
         if (code == 1001) {
             permissionInFlight=false
             if(currentAccess()==Access.NONE){finish();return}
+            if(ContactRecognition.allowed(this))ContactRecognition.invalidate(this)
+            AutoPeople.ensure(this,1_000)
             galleryRoot.visibility=View.VISIBLE;needsRefresh=true;refreshGallery()
         }
     }

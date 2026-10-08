@@ -8,7 +8,7 @@ import android.os.*
 import android.provider.MediaStore
 import java.util.concurrent.Executors
 
-/** Small persisted jobs, with a content trigger and idle discovery fallback. No foreground notification. */
+/** Small persisted jobs, with a content trigger and periodic discovery fallback. No foreground notification. */
 object AutoPeople {
     const val BATCH=71;const val DISCOVER=72;const val WATCH=73
     private var retained:List<PhotoRecord>?=null;private var retainedAccess="";private var retainedComplete=false
@@ -42,7 +42,7 @@ object AutoPeople {
         val c=context.applicationContext;if(!allowed(c) || !enabled(c))return
         runCatching{
             val scheduler=c.getSystemService(JobScheduler::class.java);val service=ComponentName(c,AutoPeopleJob::class.java)
-            if(scheduler.getPendingJob(DISCOVER)==null)scheduler.schedule(JobInfo.Builder(DISCOVER,service).setPeriodic(2*60*60_000L).setRequiresDeviceIdle(true).setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).setPersisted(true).build())
+            if(scheduler.getPendingJob(DISCOVER)==null || scheduler.getPendingJob(DISCOVER)?.isRequireDeviceIdle==true)scheduler.schedule(JobInfo.Builder(DISCOVER,service).setPeriodic(2*60*60_000L).setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).setPersisted(true).build())
             val watching=scheduler.getPendingJob(WATCH)
             if(watching==null || (ContactRecognition.available(c) && watching.triggerContentUris.orEmpty().none{it.uri==android.provider.ContactsContract.Contacts.CONTENT_URI}))watch(c)
             request(c,delay)
@@ -57,7 +57,7 @@ object AutoPeople {
 /** Conservative battery/thermal gates also work on Android 9 via battery temperature. */
 class FaceHeat(private val context:Context) {
     data class State(val battery:Int,val charging:Boolean,val temperature:Int,val thermal:Int,val saver:Boolean)
-    companion object{fun safe(s:State)=!s.saver && (s.charging || s.battery<0 || s.battery>=20) && (s.temperature<=0 || s.temperature<400) && s.thermal<2}
+    companion object{fun safe(s:State)=!s.saver && (s.battery<0 || s.battery>=20) && (s.temperature<=0 || s.temperature<400) && s.thermal<2}
     private var checked=Long.MIN_VALUE;private var usable=true
     fun canRun():Boolean {
         val now=SystemClock.elapsedRealtime();if(checked!=Long.MIN_VALUE && now-checked<1_000)return usable;checked=now

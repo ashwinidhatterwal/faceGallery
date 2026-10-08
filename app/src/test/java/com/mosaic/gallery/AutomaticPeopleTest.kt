@@ -27,8 +27,14 @@ class AutomaticPeopleTest {
         repeat(3){AutoPeople.ensure(app)};val s=app.getSystemService(JobScheduler::class.java)
         assertEquals(3,s.allPendingJobs.size)
         val batch=s.getPendingJob(AutoPeople.BATCH)!!;assertTrue(batch.isPersisted);assertTrue(batch.isRequireBatteryNotLow);assertTrue(batch.isRequireStorageNotLow);assertEquals(JobInfo.NETWORK_TYPE_NONE,batch.networkType)
-        val periodic=s.getPendingJob(AutoPeople.DISCOVER)!!;assertTrue(periodic.isPeriodic);assertTrue(periodic.isPersisted);assertTrue(periodic.isRequireDeviceIdle)
+        val periodic=s.getPendingJob(AutoPeople.DISCOVER)!!;assertTrue(periodic.isPeriodic);assertTrue(periodic.isPersisted);assertFalse(periodic.isRequireDeviceIdle)
         assertNotNull(s.getPendingJob(AutoPeople.WATCH)!!.triggerContentUris)
+    }
+    @Test fun upgradeRemovesOldIdleOnlyDiscoveryJob(){
+        val scheduler=app.getSystemService(JobScheduler::class.java)
+        scheduler.schedule(JobInfo.Builder(AutoPeople.DISCOVER,ComponentName(app,AutoPeopleJob::class.java)).setPeriodic(2*60*60_000L).setRequiresDeviceIdle(true).setPersisted(true).build())
+        AutoPeople.ensure(app)
+        assertFalse(scheduler.getPendingJob(AutoPeople.DISCOVER)!!.isRequireDeviceIdle)
     }
     @Test fun pausePersistsAndBootDoesNotResumeItUntilAnExplicitScan(){
         AutoPeople.ensure(app);AutoPeople.pause(app)
@@ -66,6 +72,7 @@ class AutomaticPeopleTest {
     @Test @Config(sdk=[28]) fun savedIndexStartsRecognitionWhileGalleryValidationIsStillBlocked(){
         Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_EXTERNAL_STORAGE)
         FaceStore(app).use{it.summary()}
+        app.getSharedPreferences("startup-access",0).edit().putBoolean("contacts-asked",true).commit()
         PhotoIndex.save(app,GalleryRepository.Result(listOf(photo),0));GalleryData.invalidate()
         val entered=java.util.concurrent.CountDownLatch(1);val release=java.util.concurrent.CountDownLatch(1)
         org.robolectric.shadows.ShadowContentResolver.registerProviderInternal("media",object:ContentProvider(){
@@ -99,7 +106,7 @@ class AutomaticPeopleTest {
     @Test fun noWorkIsScheduledWithoutPhotoAccess(){Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_MEDIA_IMAGES);AutoPeople.ensure(app);assertTrue(app.getSystemService(JobScheduler::class.java).allPendingJobs.isEmpty())}
     @Test fun heatAndBatteryPolicyHasNoChargingOverrideForHeat(){
         fun state(b:Int=70,c:Boolean=false,t:Int=320,h:Int=0,s:Boolean=false)=FaceHeat.State(b,c,t,h,s)
-        assertTrue(FaceHeat.safe(state()));assertFalse(FaceHeat.safe(state(t=400)));assertFalse(FaceHeat.safe(state(h=2)));assertTrue(FaceHeat.safe(state(b=20)));assertFalse(FaceHeat.safe(state(b=19)));assertFalse(FaceHeat.safe(state(s=true)));assertFalse(FaceHeat.safe(state(c=true,t=400)));assertTrue(FaceHeat.safe(state(b=20,c=true)));assertTrue(FaceHeat.safe(state(t=0)))
+        assertTrue(FaceHeat.safe(state()));assertFalse(FaceHeat.safe(state(t=400)));assertFalse(FaceHeat.safe(state(h=2)));assertTrue(FaceHeat.safe(state(b=20)));assertFalse(FaceHeat.safe(state(b=19)));assertFalse(FaceHeat.safe(state(s=true)));assertFalse(FaceHeat.safe(state(c=true,t=400)));assertTrue(FaceHeat.safe(state(b=20,c=true)));assertFalse(FaceHeat.safe(state(b=19,c=true)));assertTrue(FaceHeat.safe(state(t=0)))
     }
     @Test fun failedUnchangedPhotosAreNotAutomaticallyRetriedForever(){FaceStore(app).use{f->f.save(photo,emptyList(),"bad image");assertEquals(listOf(photo),f.pending(listOf(photo)));assertTrue(f.pending(listOf(photo),false).isEmpty());assertEquals(1,f.pending(listOf(photo.copy(modifiedMillis=999)),false).size)}}
     @Test fun failedSignaturesRequireManualRetryOrOneRefinement(){FaceStore(app).use{f->f.save(photo,listOf(face));f.saveSignature(photo.uri.toString(),0,null,"error","decode");assertEquals(1,f.pendingSignatures(listOf(photo)).size);assertTrue(f.pendingSignatures(listOf(photo),false).isEmpty());val key=GroupRules.Key(photo.uri.toString(),0);assertTrue(f.needsRefinement(key));f.refined(key);assertFalse(f.needsRefinement(key))}}
@@ -179,6 +186,16 @@ class AutomaticPeopleTest {
         assertTrue(app.getSystemService(android.app.NotificationManager::class.java).activeNotifications.isEmpty());c.destroy()
     }
 
+    @Test fun coolingResumesBackgroundPipelineWithoutRepeatingFinishedRecognition(){
+        val power=Shadows.shadowOf(app.getSystemService(PowerManager::class.java))
+        val c=Robolectric.buildService(Pipeline::class.java).create();val job=c.get()
+        power.setCurrentThermalStatus(2)
+        assertTrue(job.onStartJob(parameters()));finish();assertEquals(0,job.detections)
+        power.setCurrentThermalStatus(0)
+        assertTrue(job.onStartJob(parameters()));finish();assertEquals(1,job.detections);assertEquals(1,job.encodes)
+        assertTrue(job.onStartJob(parameters()));finish();assertEquals(1,job.detections);assertEquals(1,job.encodes)
+        c.destroy()
+    }
     @Test fun selectedPhotoMemoryCacheIsPermissionScoped(){
         Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_MEDIA_IMAGES)
         Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
