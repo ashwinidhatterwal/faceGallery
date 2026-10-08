@@ -1,0 +1,11 @@
+<resources>
+    <color name="gallery_accent">#E6C878</color>
+    <color name="gallery_surface">#151A22</color>
+    <color name="gallery_canvas">#0B0D11</color>
+    <color name="gallery_muted">#939AAC</color>
+    <color name="gallery_text">#ECEFF5</color>
+    <color name="gallery_icon">#C4CAD4</color>
+    <color name="gallery_panel">#222731</color>
+    <color name="gallery_divider">#292E38</color>
+    <bool name="gallery_light_bars">false</bool>
+</resources>

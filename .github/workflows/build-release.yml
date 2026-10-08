@@ -1,0 +1,87 @@
+name: Build release APK + AAB
+
+# Run after adding your own signing credentials as repository Actions secrets.
+# No build fails automatically while the repository is still being configured.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Signed release build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+          log-accepted-android-sdk-licenses: false
+
+      - name: Install required Android platform and build tools
+        run: sdkmanager 'platforms;android-36' 'build-tools;35.0.0'
+
+      - name: Gradle cache and wrapper setup
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build, test, and verify signed release
+        shell: bash
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.UPLOAD_KEYSTORE_BASE64 }}
+          RELEASE_STORE_PASSWORD: ${{ secrets.UPLOAD_STORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.UPLOAD_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.UPLOAD_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          : "${UPLOAD_KEYSTORE_BASE64:?Add repository secret UPLOAD_KEYSTORE_BASE64}"
+          : "${RELEASE_STORE_PASSWORD:?Add repository secret UPLOAD_STORE_PASSWORD}"
+          : "${RELEASE_KEY_ALIAS:?Add repository secret UPLOAD_KEY_ALIAS}"
+          : "${RELEASE_KEY_PASSWORD:?Add repository secret UPLOAD_KEY_PASSWORD}"
+
+          # Decode the owner's key only on the temporary GitHub runner.
+          export RELEASE_STORE_FILE="$RUNNER_TEMP/mosaic-upload.keystore"
+          trap 'rm -f "$RELEASE_STORE_FILE"' EXIT
+          printf '%s' "$UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$RELEASE_STORE_FILE"
+          chmod 600 "$RELEASE_STORE_FILE"
+          unset UPLOAD_KEYSTORE_BASE64
+
+          chmod +x ./gradlew
+          ./gradlew --no-daemon \
+            :app:testDebugUnitTest \
+            :app:lintRelease \
+            :app:assembleRelease \
+            :app:bundleRelease
+          python3 -m unittest discover -s tools -p 'test_*.py'
+
+          APK=app/build/outputs/apk/release/app-release.apk
+          AAB=app/build/outputs/bundle/release/app-release.aab
+          test -s "$APK"
+          test -s "$AAB"
+          python3 tools/verify_release.py "$AAB" "$APK" --signed
+          jarsigner -verify "$AAB"
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
+
+          mkdir -p dist
+          cp "$APK" dist/Mosaic-Gallery-Release.apk
+          cp "$AAB" dist/Mosaic-Gallery-Release.aab
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 2
+          sha256sum dist/*
+
+      - name: Upload exactly one APK and one AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: Mosaic-Gallery-Release
+          path: dist/
+          if-no-files-found: error
+          retention-days: 30

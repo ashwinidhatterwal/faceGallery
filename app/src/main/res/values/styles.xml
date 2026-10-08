@@ -1,0 +1,13 @@
+<resources>
+    <style name="BaseGalleryTheme" parent="android:style/Theme.Material.Light.NoActionBar" />
+    <style name="GalleryTheme" parent="BaseGalleryTheme">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">@color/gallery_accent</item>
+        <item name="android:windowBackground">@color/gallery_canvas</item>
+        <item name="android:windowLightStatusBar">@bool/gallery_light_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/gallery_light_bars</item>
+        <item name="android:navigationBarColor">@color/gallery_canvas</item>
+        <item name="android:statusBarColor">@color/gallery_canvas</item>
+        <item name="android:windowActivityTransitions">true</item>
+    </style>
+</resources>

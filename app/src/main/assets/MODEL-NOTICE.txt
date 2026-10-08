@@ -1,0 +1,19 @@
+MobileFaceNet weights: foamliu/MobileFaceNet, Apache License 2.0.
+Original license retained in MOBILEFACENET-LICENSE.txt.
+Source: https://github.com/foamliu/MobileFaceNet
+Export: Qualcomm AI Hub Models v0.63.0, MobileFaceNet TFLite float export.
+Model card license metadata: Apache-2.0.
+https://huggingface.co/qualcomm/MobileFaceNet
+
+MOSAIC modification, 2026-10-06:
+Removed the second-face input branch and reduced backbone batch from four to two.
+Retained one face and its horizontal flip, their summed 128-dimensional output,
+all trained weights and the export's internal ImageNet RGB normalization.
+Input is [1,3,112,112] RGB float32 in 0..1. Output is [1,128] float32.
+Original SHA-256: 4a5cfa4491ca0b02d4ea1552b808568b1569921d999b36c82b79def393d116ea
+Modified SHA-256: 35e2fc149c76efefefbc264fcb5153a467a1b490a82001aba19bd7fc432ec235
+Reproduction script and equivalence report: tools/prepare_encoder.py,
+tools/encoder-verification.json in the source package.
+
+LiteRT 1.4.1 runtime: Google AI Edge / TensorFlow Authors, Apache License 2.0.
+See LITERT-LICENSE.txt. Runtime/model are bundled; no remote model fetch.

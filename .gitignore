@@ -1,0 +1,21 @@
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+# Never commit private signing keys, passwords, or intermediate artifacts.
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pem
+*.key
+*.apk
+*.aab
+*.env
+.env
+.env.*
+private-signing/
+keystore-base64.txt
+signing-credentials.json
+.DS_Store
