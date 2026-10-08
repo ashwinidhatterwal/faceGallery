@@ -20,13 +20,13 @@ class FaceEngine(private val context:Context):java.io.Closeable{
     }
     @Volatile private var closeRequested=false
     @Volatile private var inFlight=false
-    fun detectBitmap(bitmap:android.graphics.Bitmap):List<FaceObservation> {
+    fun detectBitmap(bitmap:android.graphics.Bitmap,requireSingle:Boolean=false):List<FaceObservation> {
         check(nativeSlot.tryAcquire()){ "Detector still finishing a previous task" }
         val owned=try{bitmap.copy(android.graphics.Bitmap.Config.ARGB_8888,false)?:error("Could not prepare detector input")}catch(e:Throwable){nativeSlot.release();throw e}
         inFlight=true
         val task=try{detector.process(InputImage.fromBitmap(owned,0))}catch(e:Throwable){inFlight=false;owned.recycle();nativeSlot.release();throw e}
         var timedOut=false
-        try{return Tasks.await(task,8,java.util.concurrent.TimeUnit.SECONDS).mapNotNull{observation(bitmap,it)}}
+        try{val faces=Tasks.await(task,8,java.util.concurrent.TimeUnit.SECONDS);return if(requireSingle && faces.size!=1)emptyList()else faces.mapNotNull{observation(bitmap,it)}}
         catch(e:java.util.concurrent.TimeoutException){timedOut=true;throw e}
         finally{
             if(timedOut || !task.isComplete)task.addOnCompleteListener(java.util.concurrent.Executor{it.run()}){owned.recycle();inFlight=false;nativeSlot.release();if(closeRequested)detector.close()}

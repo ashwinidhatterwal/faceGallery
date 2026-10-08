@@ -52,6 +52,7 @@ class PeopleNames(private val activity:Activity) {
         val root=GalleryStyle.panelRoot(activity)
         root.addView(GalleryStyle.text(activity,"Name this person",22f))
         root.addView(GalleryStyle.text(activity,"Choose a contact or type any name, then save.",14f,GalleryStyle.muted(activity)),LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(8);bottomMargin=dp(12)})
+        if(!ContactRecognition.allowed(activity))root.addView(GalleryStyle.text(activity,"Allow contacts to suggest names. Automatic contact-photo matching is optional and can be controlled in Settings > Privacy.",13f,GalleryStyle.muted(activity)))
         if(preview!=null && !preview.isRecycled && face!=null){
             val size=maxOf(preview.width,preview.height);val ratio=minOf(1f,640f/size)
             val scaled=android.graphics.Bitmap.createScaledBitmap(preview,(preview.width*ratio).toInt().coerceAtLeast(1),(preview.height*ratio).toInt().coerceAtLeast(1),true)
@@ -94,7 +95,7 @@ class PeopleNames(private val activity:Activity) {
         updatePermission();schedule()
     }
     private fun requestContacts(){requestingPermission=true;activity.requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS),PERMISSION)}
-    fun permissionResult(request:Int):Boolean{if(request!=PERMISSION)return false;requestingPermission=false;updatePermission();schedule();return true}
+    fun permissionResult(request:Int):Boolean{if(request!=PERMISSION)return false;requestingPermission=false;updatePermission();schedule();ContactRecognition.invalidate(activity);AutoPeople.ensure(activity,1_000);return true}
     private fun updatePermission(){contacts?.visibility=if(activity.checkSelfPermission(Manifest.permission.READ_CONTACTS)==PackageManager.PERMISSION_GRANTED)View.GONE else View.VISIBLE}
     private fun schedule(){epoch++;signal?.cancel();handler.removeCallbacks(refresh);if(dialog?.isShowing==true)handler.postDelayed(refresh,120)}
     private fun suggest(){

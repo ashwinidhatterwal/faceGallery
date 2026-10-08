@@ -5,7 +5,7 @@ import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class FaceStore(private val context:Context,private val now:()->Long=System::currentTimeMillis):SQLiteOpenHelper(context,"faces.db",null,7),java.io.Closeable{
+class FaceStore(private val context:Context,private val now:()->Long=System::currentTimeMillis):SQLiteOpenHelper(context,"faces.db",null,8),java.io.Closeable{
     companion object{
         const val MODEL="mlkit-16.1.7-accurate-1600-quality1"
         fun fingerprint(photo:PhotoRecord)="${photo.modifiedMillis}:${photo.sizeBytes}:${photo.width}:${photo.height}:${photo.dateTakenMillis}"
@@ -15,7 +15,7 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
     override fun onCreate(db:SQLiteDatabase){
         db.execSQL("CREATE TABLE photos(uri TEXT PRIMARY KEY,fingerprint TEXT NOT NULL,model TEXT NOT NULL,status TEXT NOT NULL,error TEXT)")
         db.execSQL("CREATE TABLE faces(uri TEXT NOT NULL REFERENCES photos(uri) ON DELETE CASCADE,ordinal INTEGER NOT NULL,l REAL,t REAL,r REAL,b REAL,yaw REAL,pitch REAL,roll REAL,sharpness REAL,score REAL,authority TEXT,landmarks BLOB,PRIMARY KEY(uri,ordinal))")
-        createEmbeddings(db);PeopleStore.create(db);createRetries(db);createDurable(db);PeopleData.changed()
+        createEmbeddings(db);PeopleStore.create(db);createRetries(db);createDurable(db);ContactRecognition.create(db);PeopleData.changed()
     }
     override fun onUpgrade(db:SQLiteDatabase,oldVersion:Int,newVersion:Int){
         if(oldVersion<2){db.execSQL("ALTER TABLE faces ADD COLUMN landmarks BLOB");createEmbeddings(db)}
@@ -24,6 +24,11 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
         if(oldVersion<6)createRetries(db)
         if(oldVersion<7)createDurable(db)
         if(oldVersion in 3..4){db.execSQL("ALTER TABLE people ADD COLUMN contact_lookup TEXT");db.execSQL("ALTER TABLE people ADD COLUMN contact_name TEXT");db.execSQL("ALTER TABLE people ADD COLUMN name_rank INTEGER NOT NULL DEFAULT 0")}
+        if(oldVersion<8){
+            val hasVeto=db.rawQuery("PRAGMA table_info(people)",null).use{c->var found=false;while(c.moveToNext())if(c.getString(1)=="contact_auto_blocked")found=true;found}
+            if(!hasVeto)db.execSQL("ALTER TABLE people ADD COLUMN contact_auto_blocked INTEGER NOT NULL DEFAULT 0")
+            ContactRecognition.create(db)
+        }
     }
     private fun createDurable(db:SQLiteDatabase){
         db.execSQL("CREATE TABLE IF NOT EXISTS operation_retries(uri TEXT NOT NULL,ordinal INTEGER NOT NULL,phase TEXT NOT NULL,fingerprint TEXT NOT NULL,model TEXT NOT NULL,attempts INTEGER NOT NULL,next_time INTEGER NOT NULL,PRIMARY KEY(uri,ordinal,phase))")

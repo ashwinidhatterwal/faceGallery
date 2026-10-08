@@ -1,3 +1,13 @@
+## Contact portrait matching — 0.8.1-contacts
+
+Built from the current faceGallery repository, commit 871dd672cae1ee1ca5bd1b60758dfdafba52f628.
+
+Enable contacts access in Settings > Privacy (or the existing name/contact dialog). With **Match contact photos automatically** enabled, background/foreground recognition compares suitable single-person contact portraits against gallery groups. Clear matches name and link unnamed groups. Missing, poor or ambiguous portraits retain existing behaviour. Saved names, contact links and manual face corrections take priority. Remove a wrong contact link through the existing name editor; it will not be automatically reattached.
+
+The cache is persistent, versioned by recognition model and refreshed on contact changes. Unchanged pixels reuse signatures even when a name/phone edit changes the provider timestamp. Skipped portraits are cached; errors back off and stop after three attempts per photo revision. Contact images never become gallery photos or extra face groups. Processing shares existing pause, heat and battery gates and has no new progress notification. Database upgrade 7 → 8 retains existing recognition and grouping results.
+
+The repository's current release signing workflow and secrets are preserved. A locally built debug APK uses the standard local Android debug key and may not update a previously signed installation. Build your signed APK/AAB using **Build release APK + AAB** with your existing repository secrets. Never uninstall a data-bearing installation merely to change signing keys.
+
 # Mosaic Gallery — Android 0.8.0-rc1
 
 Minimal GitHub source package. The repository contains application source, Android resources, Gradle wrapper, one manual GitHub Actions release workflow, and release verification tests. **No signing credentials, debug keys, prebuilt APKs, or AABs are included.**
@@ -44,7 +54,7 @@ The APK and AAB are signed using **the same key you provided**. On every manual 
 
 - Android Gradle Plugin 8.13.2, Kotlin 2.3.0, Gradle 8.13 and JDK 17.
 - Android API 36 and SDK Build Tools 35.0.0; minimum supported Android API 28 (Android 9).
-- App ID `com.mosaic.gallery`; version code 36; version name `0.8.0-rc1`.
+- App ID `com.mosaic.gallery`; version code 37; version name `0.8.1-contacts`.
 - `./gradlew :app:assembleDebug` makes a local debug APK, which Android signs with the developer machine's local debug key, not your Play upload key.
 
 ## Important release notes

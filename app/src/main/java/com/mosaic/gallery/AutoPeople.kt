@@ -28,10 +28,10 @@ object AutoPeople {
     fun canStartVisible(c:Context)=allowed(c) && enabled(c) && !FaceJobs.state.busy && SystemClock.elapsedRealtime()>=FaceWork.editingUntil
     /** Read on a worker; completed photos/signatures are never submitted for inference again. */
     fun hasPending(c:Context,photos:List<PhotoRecord>):Boolean {
-        if(photos.isEmpty())return false
+        if(photos.isEmpty())return ContactRecognition.needsWork(c)
         return FaceStore(c).use{store->
             store.pending(photos,false).isNotEmpty() || store.pendingSignatures(photos,false).isNotEmpty() ||
-                (needsGrouping(c) && store.signatureSummary().ready>0) || SignatureRefinement.candidates(store,photos,1).isNotEmpty()
+                (needsGrouping(c) && store.signatureSummary().ready>0) || SignatureRefinement.candidates(store,photos,1).isNotEmpty() || ContactRecognition.needsWork(c)
         }
     }
     @Synchronized fun dirty(c:Context){val p=prefs(c);p.edit().putLong("revision",p.getLong("revision",0)+1).apply()}
@@ -43,11 +43,12 @@ object AutoPeople {
         runCatching{
             val scheduler=c.getSystemService(JobScheduler::class.java);val service=ComponentName(c,AutoPeopleJob::class.java)
             if(scheduler.getPendingJob(DISCOVER)==null)scheduler.schedule(JobInfo.Builder(DISCOVER,service).setPeriodic(2*60*60_000L).setRequiresDeviceIdle(true).setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).setPersisted(true).build())
-            if(scheduler.getPendingJob(WATCH)==null)watch(c)
+            val watching=scheduler.getPendingJob(WATCH)
+            if(watching==null || (ContactRecognition.available(c) && watching.triggerContentUris.orEmpty().none{it.uri==android.provider.ContactsContract.Contacts.CONTENT_URI}))watch(c)
             request(c,delay)
         }
     }
-    fun watch(c:Context){if(!allowed(c) || !enabled(c))return;runCatching{c.getSystemService(JobScheduler::class.java).schedule(JobInfo.Builder(WATCH,ComponentName(c,AutoPeopleJob::class.java)).addTriggerContentUri(JobInfo.TriggerContentUri(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,JobInfo.TriggerContentUri.FLAG_NOTIFY_FOR_DESCENDANTS)).setTriggerContentUpdateDelay(5_000).setTriggerContentMaxDelay(30_000).setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).build())}}
+    fun watch(c:Context){if(!allowed(c) || !enabled(c))return;runCatching{val job=JobInfo.Builder(WATCH,ComponentName(c,AutoPeopleJob::class.java)).addTriggerContentUri(JobInfo.TriggerContentUri(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,JobInfo.TriggerContentUri.FLAG_NOTIFY_FOR_DESCENDANTS));if(ContactRecognition.available(c))job.addTriggerContentUri(JobInfo.TriggerContentUri(android.provider.ContactsContract.Contacts.CONTENT_URI,JobInfo.TriggerContentUri.FLAG_NOTIFY_FOR_DESCENDANTS));c.getSystemService(JobScheduler::class.java).schedule(job.setTriggerContentUpdateDelay(5_000).setTriggerContentMaxDelay(30_000).setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).build())}}
     fun request(c:Context,delay:Long=60_000,replaceFinished:Boolean=false){
         if(!allowed(c) || !enabled(c) || FaceWork.automatic)return
         runCatching{val s=c.getSystemService(JobScheduler::class.java);if(replaceFinished || s.getPendingJob(BATCH)==null)s.schedule(JobInfo.Builder(BATCH,ComponentName(c,AutoPeopleJob::class.java)).setMinimumLatency(delay).setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).setBackoffCriteria(5*60_000L,JobInfo.BACKOFF_POLICY_EXPONENTIAL).setPersisted(true).build())}
@@ -84,7 +85,11 @@ open class AutoPeopleJob:JobService() {
         SignatureEngine(applicationContext,1).use{engine->engine.refine(store,photo,keys,keepGoing,::canCommit)}
     }
     override fun onStartJob(params:JobParameters):Boolean {
-        if(params.jobId==AutoPeople.WATCH)GalleryData.invalidate()
+        if(params.jobId==AutoPeople.WATCH){
+            val authorities=params.triggeredContentAuthorities.orEmpty()
+            if(authorities.isEmpty() || MediaStore.AUTHORITY in authorities)GalleryData.invalidate()
+            if(authorities.isEmpty() || android.provider.ContactsContract.AUTHORITY in authorities)ContactRecognition.invalidate(this)
+        }
         if(current!=null || !AutoPeople.allowed(this) || !AutoPeople.enabled(this) || !FaceWork.begin()){main.post{AutoPeople.request(this,5*60_000L,params.jobId==AutoPeople.BATCH);if(params.jobId==AutoPeople.WATCH)AutoPeople.watch(this)};return false}
         val run=Run(params);current=run
         worker.execute{
@@ -119,6 +124,11 @@ open class AutoPeopleJob:JobService() {
                     }
                     retryDelay=store.nextRetryDelay()
                     more=store.pending(photos,false).isNotEmpty() || store.pendingSignatures(photos,false).isNotEmpty() || (AutoPeople.needsGrouping(this) && store.signatureSummary().ready>0) || SignatureRefinement.candidates(store,photos,1).isNotEmpty()
+                    if(keepGoing()){
+                        val contacts=ContactRecognition.run(this,store,::keepGoing,run.signal)
+                        more=more || contacts.more
+                        retryDelay=listOfNotNull(retryDelay,contacts.retryDelay).minOrNull()
+                    }else more=more || ContactRecognition.needsWork(this)
                 }
             }}
             main.post{

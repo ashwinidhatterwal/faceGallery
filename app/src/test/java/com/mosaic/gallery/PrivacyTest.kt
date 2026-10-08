@@ -34,13 +34,13 @@ class PrivacyTest {
         app.getSharedPreferences("automatic-people",0).edit().clear().commit()
         FaceJobs.publish(FaceJobs.State());AutoPeople.ensure(app)
         val first=Robolectric.buildActivity(PrivacyActivity::class.java).setup()
-        val toggle=texts(first.get().window.decorView).filterIsInstance<android.widget.CheckBox>().single()
+        val toggle=texts(first.get().window.decorView).filterIsInstance<android.widget.CheckBox>().single{it.text=="Background recognition"}
         assertTrue(toggle.isChecked);toggle.performClick()
         assertFalse(AutoPeople.enabled(app))
         assertTrue(app.getSystemService(android.app.job.JobScheduler::class.java).allPendingJobs.isEmpty())
         first.pause().stop().destroy()
         val second=Robolectric.buildActivity(PrivacyActivity::class.java).setup()
-        val restored=texts(second.get().window.decorView).filterIsInstance<android.widget.CheckBox>().single()
+        val restored=texts(second.get().window.decorView).filterIsInstance<android.widget.CheckBox>().single{it.text=="Background recognition"}
         assertFalse(restored.isChecked);restored.performClick()
         assertTrue(AutoPeople.enabled(app))
         assertNotNull(app.getSystemService(android.app.job.JobScheduler::class.java).getPendingJob(AutoPeople.BATCH))

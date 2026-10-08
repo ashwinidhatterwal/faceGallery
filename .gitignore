@@ -1,4 +1,5 @@
 .gradle/
+.kotlin/
 **/build/
 local.properties
 .idea/
@@ -19,3 +20,7 @@ private-signing/
 keystore-base64.txt
 signing-credentials.json
 .DS_Store
+
+# Local Python verification cache.
+__pycache__/
+*.pyc

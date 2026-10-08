@@ -7,7 +7,7 @@ import android.database.sqlite.SQLiteDatabase
 class PeopleStore(private val faces:FaceStore) {
     companion object {
         fun create(db:SQLiteDatabase){
-            db.execSQL("CREATE TABLE people(id INTEGER PRIMARY KEY AUTOINCREMENT,label TEXT NOT NULL DEFAULT '',contact_lookup TEXT,contact_name TEXT,name_rank INTEGER NOT NULL DEFAULT 0)")
+            db.execSQL("CREATE TABLE people(id INTEGER PRIMARY KEY AUTOINCREMENT,label TEXT NOT NULL DEFAULT '',contact_lookup TEXT,contact_name TEXT,name_rank INTEGER NOT NULL DEFAULT 0,contact_auto_blocked INTEGER NOT NULL DEFAULT 0)")
             db.execSQL("CREATE TABLE membership(uri TEXT NOT NULL,ordinal INTEGER NOT NULL,person INTEGER REFERENCES people(id),suggested INTEGER REFERENCES people(id),status TEXT NOT NULL,score REAL NOT NULL,reason TEXT NOT NULL,model TEXT NOT NULL,manual INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(uri,ordinal),FOREIGN KEY(uri,ordinal) REFERENCES faces(uri,ordinal) ON DELETE CASCADE)")
             db.execSQL("CREATE INDEX people_members ON membership(person)")
             db.execSQL("CREATE TABLE relations(id INTEGER PRIMARY KEY AUTOINCREMENT,a INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,b INTEGER NOT NULL REFERENCES people(id) ON DELETE CASCADE,type TEXT NOT NULL,source TEXT NOT NULL,active INTEGER NOT NULL,reason TEXT NOT NULL,batch INTEGER)")
@@ -106,12 +106,13 @@ class PeopleStore(private val faces:FaceStore) {
     }
     fun unlink(id:Long){
         val edge=relations().firstOrNull{it.id==id && it.type!="cannot"}?:return
-        transaction{db.execSQL("UPDATE relations SET active=0 WHERE id=?",arrayOf(id));link(edge.a,edge.b,"cannot","user","Join reversed by user")}
+        transaction{blockContactAutomation(edge.a);blockContactAutomation(edge.b);db.execSQL("UPDATE relations SET active=0 WHERE id=?",arrayOf(id));link(edge.a,edge.b,"cannot","user","Join reversed by user")}
     }
     fun separate(key:GroupRules.Key){
         val rows=members();val member=rows.firstOrNull{it.key==key}?:return;val person=member.person?:return
         val roots=components(rows);val group=roots.filterValues{it==roots[person]}.keys
         transaction{
+            blockContactAutomation(person)
             if(member.face.authority=="Anchor"){
                 db.execSQL("UPDATE relations SET active=0 WHERE type!='cannot' AND (a=? OR b=?)",arrayOf(person,person))
                 group.filter{it!=person}.forEach{link(person,it,"cannot","user","Face kept separate by user")}
@@ -162,7 +163,25 @@ class PeopleStore(private val faces:FaceStore) {
         }
     }
     private fun prioritize(id:Long){db.execSQL("UPDATE people SET name_rank=(SELECT COALESCE(MAX(name_rank),0)+1 FROM people) WHERE id=?",arrayOf(id))}
-    fun rename(id:Long,name:String){val root=components()[id]?:id;db.update("people",ContentValues().apply{put("label",name.trim().take(60))},"id=?",arrayOf(root.toString()));prioritize(root)}
+    fun rename(id:Long,name:String){val root=components()[id]?:id;blockContactAutomation(root);db.update("people",ContentValues().apply{put("label",name.trim().take(60))},"id=?",arrayOf(root.toString()));prioritize(root)}
+    /** Removing/editing a name or reversing a join is a durable veto, even after future merges. */
+    fun blockContactAutomation(id:Long){val roots=components();val root=roots[id]?:id;roots.filterValues{it==root}.keys.forEach{db.execSQL("UPDATE people SET contact_auto_blocked=1 WHERE id=?",arrayOf(it))}}
+    fun contactAutomationBlocked():Set<Long> = buildSet{db.rawQuery("SELECT id FROM people WHERE contact_auto_blocked=1",null).use{while(it.moveToNext())add(it.getLong(0))}}
+    fun autoContact(id:Long,contact:ContactNames.Contact,rows:List<GroupRules.Member> = members(),roots:Map<Long,Long> = components(rows),groups:List<GroupRules.Capsule> = capsules(rows,roots)):Boolean {
+        require(ContactNames.valid(contact.lookup))
+        var saved=false
+        transaction{
+            val group=groups.firstOrNull{id in it.leaves}?:return@transaction
+            val names=names();val vetoes=contactAutomationBlocked();val contacts=contacts(roots)
+            if(group.leaves.any{it in names || it in vetoes} || contacts[group.id]!=null || rows.any{it.person in group.leaves && it.manual})return@transaction
+            val linked=groups.filter{contacts[it.id]?.lookup==contact.lookup}
+            if(linked.any{blocked(group.leaves,it.leaves) || group.photos.intersect(it.photos).isNotEmpty()})return@transaction
+            db.update("people",ContentValues().apply{put("label",contact.name.trim().take(60));put("contact_lookup",contact.lookup);put("contact_name",contact.name)},"id=?",arrayOf(group.id.toString()))
+            prioritize(group.id);saved=true
+        }
+        if(saved)PeopleData.changed()
+        return saved
+    }
     fun contacts(roots:Map<Long,Long> = components()):Map<Long,ContactNames.Contact> = buildMap {
         db.rawQuery("SELECT id,contact_lookup,contact_name FROM people WHERE contact_lookup IS NOT NULL ORDER BY name_rank DESC,id",null).use{c->while(c.moveToNext()){val root=roots[c.getLong(0)]?:c.getLong(0);if(root !in this)put(root,ContactNames.Contact(c.getString(1),c.getString(2).orEmpty()))}}
     }
@@ -172,6 +191,7 @@ class PeopleStore(private val faces:FaceStore) {
         require(choice.name.trim().isNotEmpty());choice.contact?.let{require(ContactNames.valid(it.lookup)){"Invalid contact link"}}
         transaction{
             val roots=components();val root=roots[id]?:error("Person is no longer available");val leaves=roots.filterValues{it==root}.keys
+            blockContactAutomation(root)
             db.execSQL("UPDATE people SET contact_lookup=NULL,contact_name=NULL WHERE contact_lookup IS NOT NULL AND id IN (${leaves.joinToString(",")})")
             db.update("people",ContentValues().apply{put("label",choice.name.trim().take(60));put("contact_lookup",choice.contact?.lookup);put("contact_name",choice.contact?.name)},"id=?",arrayOf(root.toString()));prioritize(root)
             choice.contact?.let{contact->val live=capsules().map{it.id}.toSet();contacts().filter{it.key!=root && it.key in live && it.value.lookup==contact.lookup}.keys.forEach{main->merge(main,root,allowRepeated)}}
@@ -239,5 +259,5 @@ class PeopleStore(private val faces:FaceStore) {
         };return repaired
     }
     private fun contactKeysById()=buildSet<Long>{db.rawQuery("SELECT id FROM people WHERE contact_lookup IS NOT NULL",null).use{while(it.moveToNext())add(it.getLong(0))}}
-    fun reset(){db.delete("identity_assertions",null,null);transaction{db.delete("face_edits",null,null);db.delete("correction_samples",null,null);db.delete("membership",null,null);db.delete("relations",null,null);db.delete("people",null,null)}}
+    fun reset(){db.delete("identity_assertions",null,null);transaction{db.delete("contact_signatures",null,null);db.delete("contact_matches",null,null);db.delete("face_edits",null,null);db.delete("correction_samples",null,null);db.delete("membership",null,null);db.delete("relations",null,null);db.delete("people",null,null)}}
 }

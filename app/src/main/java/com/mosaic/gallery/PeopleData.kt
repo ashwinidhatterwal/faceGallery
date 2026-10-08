@@ -76,7 +76,7 @@ class MosaicApplication:Application() {
         val schedule=Runnable{AutoPeople.ensure(this@MosaicApplication)}
         val media=object:ContentObserver(main){override fun onChange(selfChange:Boolean){GalleryData.invalidate();main.removeCallbacks(schedule);main.postDelayed(schedule,2_000)}}
         runCatching{contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,true,media)}
-        val contacts=object:ContentObserver(main){override fun onChange(selfChange:Boolean){PeopleData.changed()}}
+        val contacts=object:ContentObserver(main){override fun onChange(selfChange:Boolean){PeopleData.changed();ContactRecognition.invalidate(this@MosaicApplication);main.removeCallbacks(schedule);main.postDelayed(schedule,2_000)}}
         runCatching{contentResolver.registerContentObserver(ContactsContract.Contacts.CONTENT_URI,true,contacts)}
     }
 }

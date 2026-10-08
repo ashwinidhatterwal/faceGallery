@@ -124,6 +124,7 @@ object PeopleGrouping {
     /** Reuse unfinished pair evidence across cool-down batches, invalidating when references change. */
     @Synchronized private fun resumable(store:PeopleStore,groups:List<GroupRules.Capsule>,policy:PeopleCalibration.Policy):IdentityComparisonCache {
         var key=(policy.hashCode().toLong()*31+"auto-merge-v2".hashCode())*31+store.relations().hashCode();key=key*31+store.names().hashCode();key=key*31+store.contacts().entries.sortedBy{it.key}.map{it.key to it.value.lookup}.hashCode()
+        key=key*31+store.contactAutomationBlocked().sorted().hashCode()
         for(group in groups.sortedBy{it.id}){key=key*31+group.id;key=key*31+group.photos.sorted().hashCode();key=key*31+group.leaves.sorted().hashCode();for(ref in group.prototypes){key=key*31+ref.member.key.hashCode();key=key*31+ref.vector.contentHashCode()}}
         if(key!=comparisonKey || comparisons==null){comparisonKey=key;comparisons=IdentityComparisonCache(groups.map{it.id},policy.agreement-policy.groupMargin,store.comparisonCheckpoint(),key)}
         return comparisons!!
@@ -165,6 +166,11 @@ object PeopleGrouping {
         val negatives=store.relations().filter{it.active && it.type=="cannot"}
         val contacts=store.contacts()
         val names=store.names()
+        val contactVetoes=store.contactAutomationBlocked()
+        fun contactPropagation(a:GroupRules.Capsule,b:GroupRules.Capsule):Boolean {
+            val aLinked=a.leaves.any{contacts[it]!=null};val bLinked=b.leaves.any{contacts[it]!=null}
+            return (!aLinked && bLinked && a.leaves.any{it in contactVetoes}) || (!bLinked && aLinked && b.leaves.any{it in contactVetoes})
+        }
         fun nameConflict(a:GroupRules.Capsule,b:GroupRules.Capsule):Boolean {
             fun labels(group:GroupRules.Capsule)=group.leaves.mapNotNull{names[it]?.trim()?.lowercase(java.util.Locale.ROOT)}.toSet()
             val first=labels(a);val second=labels(b)
@@ -172,6 +178,7 @@ object PeopleGrouping {
         }
         fun allowed(a:GroupRules.Capsule,b:GroupRules.Capsule)=
             (a.leaves+b.leaves).mapNotNull{contacts[it]?.lookup}.toSet().size<=1 &&
+            !contactPropagation(a,b) &&
             !nameConflict(a,b) &&
             !negatives.any{(it.a in a.leaves && it.b in b.leaves)||(it.b in a.leaves && it.a in b.leaves)}
         fun join(a:GroupRules.Capsule,b:GroupRules.Capsule,reason:String){
