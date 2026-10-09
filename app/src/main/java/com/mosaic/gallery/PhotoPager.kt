@@ -34,6 +34,7 @@ class PhotoPager(context: Context) : RecyclerView(context) {
     var deferImageUpgrades=false
     var onDismissProgress:(Float)->Unit={}
     var onDismissReleased:()->Unit={}
+    private var controlsGesture=false
     private var downX=0f;private var downY=0f
     private var dismissImage:ZoomPhotoView?=null
     private var directionLocked=false
@@ -86,6 +87,8 @@ class PhotoPager(context: Context) : RecyclerView(context) {
         })
     }
     override fun onInterceptTouchEvent(event:MotionEvent):Boolean {
+        if(event.actionMasked==MotionEvent.ACTION_DOWN){val holder=findViewHolderForAdapterPosition(selected) as? Holder;controlsGesture=holder?.video?.let{it.controlsHit(event.x-holder.root.left-it.left,event.y-holder.root.top-it.top)}==true}
+        if(controlsGesture)return false
         when(event.actionMasked){
             MotionEvent.ACTION_DOWN->{downX=event.x;downY=event.y;directionLocked=false;dismissBlocked=false;swipingUp=false}
             MotionEvent.ACTION_POINTER_DOWN->dismissBlocked=true

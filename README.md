@@ -1,6 +1,10 @@
-# Face Gallery — Play release candidate 1.0.0-rc3 (43)
+# Face Gallery — Play release candidate 1.0.0-rc4 (44)
 
 Start with [publishing/START-HERE.md](publishing/START-HERE.md). This source includes store artwork, listing copy, policy/declaration drafts and release checks. Physical-device acceptance, public support details, privacy hosting and Play review remain owner steps.
+
+## Playback and grid polish — 1.0.0-rc4
+
+Transparent video controls have a full-width gliding timeline, combined elapsed/total time, play/pause and mute. Timeline dragging reserves its gesture instead of paging to another item. The anchored menu is compact, with one changing Camera/All media action and a refresh icon. Scrolling Photos reveals a small fading handle at the right edge; dragging it jumps through the current media view with a date preview and reuses cached media.
 
 ## Contact portrait matching — 0.9.1-media-fixes
 
@@ -58,7 +62,7 @@ The APK and AAB are signed using **the same key you provided**. On every manual 
 
 - Android Gradle Plugin 8.13.2, Kotlin 2.3.0, Gradle 8.13 and JDK 17.
 - Android API 36 and SDK Build Tools 35.0.0; minimum supported Android API 28 (Android 9).
-- App ID `com.mosaic.gallery`; version code 43; version name `1.0.0-rc3`.
+- App ID `com.mosaic.gallery`; version code 44; version name `1.0.0-rc4`.
 - `./gradlew :app:assembleDebug` makes a local debug APK, which Android signs with the developer machine's local debug key, not your Play upload key.
 
 ## Important release notes

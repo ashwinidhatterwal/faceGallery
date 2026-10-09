@@ -34,6 +34,7 @@ class MainActivity : Activity() {
     private lateinit var selectionBar: LinearLayout
     private lateinit var progress: ProgressBar
     private lateinit var grid: RecyclerView
+    private lateinit var fastScroll:GalleryFastScroll
     private lateinit var gridHost:FrameLayout
     private var parentGrid:RecyclerView?=null
     private var parentAdapter:PhotoGridAdapter?=null
@@ -139,7 +140,7 @@ class MainActivity : Activity() {
     override fun onPause() {
         if (adapter.itemCount > 0) scrollPosition = (grid.layoutManager as? GridLayoutManager)?.findFirstVisibleItemPosition()?.coerceAtLeast(0) ?: 0
         (grid as? PinchPhotoGrid)?.cancelResize()
-        active = false; revision++; signal?.cancel(); handler.removeCallbacks(refresh)
+        fastScroll.hide();active = false; revision++; signal?.cancel(); handler.removeCallbacks(refresh)
         super.onPause()
     }
     // Keep the bounded thumbnail cache alive through the shared-element transition.
@@ -152,7 +153,7 @@ class MainActivity : Activity() {
         state.putString("page", page); state.putString("album", album); state.putBoolean("selecting", selecting)
         state.putStringArrayList("selected", ArrayList(selected)); deletion.save(state); state.putBoolean("cameraOnly",cameraOnly); super.onSaveInstanceState(state)
     }
-    override fun onDestroy() { if(observed)contentResolver.unregisterContentObserver(observer); folderAnimation?.cancel();glide?.detach();parentAdapter?.close();deletion.close(); adapter.close(); io.shutdownNow(); super.onDestroy() }
+    override fun onDestroy() { if(::fastScroll.isInitialized)fastScroll.close();if(observed)contentResolver.unregisterContentObserver(observer); folderAnimation?.cancel();glide?.detach();parentAdapter?.close();deletion.close(); adapter.close(); io.shutdownNow(); super.onDestroy() }
     private fun buildUi(): View {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(GalleryStyle.canvas(this@MainActivity)) }
         val header = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL; setPadding(dp(24),dp(22),dp(12),dp(14)) }
@@ -164,6 +165,7 @@ class MainActivity : Activity() {
         action=Button(this);root.addView(action)
         progress=ProgressBar(this).apply{visibility=View.GONE};root.addView(progress,LinearLayout.LayoutParams(-1,dp(40)))
         grid=newGrid(adapter);gridHost=FrameLayout(this);gridHost.addView(grid,FrameLayout.LayoutParams(-1,-1))
+        fastScroll=GalleryFastScroll(this);gridHost.addView(fastScroll,FrameLayout.LayoutParams(-1,-1));fastScroll.bind(grid){page=="Photos" && !folderOpen && !selecting && !openingAlbum}
         root.addView(gridHost,LinearLayout.LayoutParams(-1,0,1f));attachGlide()
         val divider=View(this).apply{setBackgroundColor(GalleryStyle.dividerColor(this@MainActivity))};root.addView(divider,LinearLayout.LayoutParams(-1,dp(1)))
         selectionBar=GalleryStyle.bar(this)
@@ -233,10 +235,9 @@ class MainActivity : Activity() {
     private fun overflow(anchor:View){
         val actions=mutableListOf<GalleryMenu.Action>()
         if(page=="Photos" && !folderOpen){
-            actions+=GalleryMenu.Action(if(cameraOnly)"photo"else"check", "All photos and videos") { setCameraOnly(false) }
-            actions+=GalleryMenu.Action(if(cameraOnly)"check"else"photo", "Only camera") { setCameraOnly(true) }
+            actions+=GalleryMenu.Action("photo",if(cameraOnly)"All media"else"Only camera") { setCameraOnly(!cameraOnly) }
         }
-        actions+=GalleryMenu.Action("redo","Refresh library"){adapter.retryThumbnails();refreshGallery()}
+        actions+=GalleryMenu.Action("refresh","Refresh library"){adapter.retryThumbnails();refreshGallery()}
         actions+=GalleryMenu.Action("settings","Settings"){startActivity(Intent(this,SettingsActivity::class.java))}
         GalleryMenu.show(this,if(folderOpen)album.ifBlank{"Library"}else page,actions,anchor)
     }
@@ -252,6 +253,7 @@ class MainActivity : Activity() {
         val key = photo.uri.toString(); if (!selected.add(key)) selected.remove(key); updateSelection()
     }
     private fun updateSelection() {
+        if(::fastScroll.isInitialized){fastScroll.bringToFront();fastScroll.bind(grid){page=="Photos" && !folderOpen && !selecting && !openingAlbum}}
         heading.text=if(selecting)"${selected.size} selected"else if(album=="@favorites")"Favorites"else if(album=="@other")"Other"else if(folderOpen)album.ifBlank{"All"}else page
         heading.textSize=if(selecting)24f else 36f
         headerActions.removeAllViews()

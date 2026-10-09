@@ -1,3 +1,17 @@
+# Face Gallery 1.0.0-rc4 — build 44
+
+- Transparent two-row video controls: full-width timeline, larger play target, combined elapsed/total time and mute. The visible tracker interpolates playback samples on animation frames.
+- Timeline touches are protected from horizontal viewer paging. Cancelling a scrub does not commit a seek; playback resumes according to the prior state.
+- Anchored menus use compact 48dp rows without an extra header. Photos has one Camera/All media toggle and a proper refresh icon.
+- The main Photos grid has a fading right-edge fast-scroll handle with an enlarged touch area and date preview. Dragging uses the current adapter and cached media; it does not reload the library.
+- Recognition, contact matching, permissions, database and signing remain unchanged.
+
+Validation: 413 Android tests and four Python verifier tests passed. Release APK/AAB compilation, archive/model/native alignment checks and static publishing checks passed. Lint has zero errors and 134 warnings. Local outputs are unsigned. Actual controls and anchored menus were rendered and reviewed. See validation/playback-grid-polish.json.
+
+Physical-device review of playback and fast scrolling remains necessary before production.
+
+## Previous release
+
 # Face Gallery 1.0.0-rc3 — build 43
 
 - Main Photos now defaults to camera media, with remembered All photos and videos / Only camera choices in its anchored menu.

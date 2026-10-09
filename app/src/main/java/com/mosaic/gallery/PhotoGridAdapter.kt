@@ -91,6 +91,7 @@ class PhotoGridAdapter(private val context: Context, private val click: (PhotoRe
     }
     fun retryThumbnails(){cells.forEach{it.cancel()};cache.evictAll();workers.purge();notifyDataSetChanged()}
     private var shownSelectionMode=false
+    fun scrollLabel(position:Int)=items.getOrNull(position)?.let{it.photo?.let{photo->GalleryDates.label(photo.dateTakenMillis)}?:it.title}.orEmpty()
     fun photoKey(position:Int)=items.getOrNull(position)?.takeIf{it.album==null}?.photo?.uri?.toString()
     fun setSelection(keys:Set<String>){
         if(selected==keys && shownSelectionMode==selectionMode)return
