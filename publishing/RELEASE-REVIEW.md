@@ -1,3 +1,19 @@
+# Face Gallery 1.0.0-rc3 — build 43
+
+- Main Photos now defaults to camera media, with remembered All photos and videos / Only camera choices in its anchored menu.
+- Filter uses cached metadata only. Albums, recognition and contact matching retain the full accessible library.
+- Removed the redundant People action from the main gallery menu.
+- Video controls have a 56dp play target with a 32dp icon, a separate 48dp mute target, a 64dp themed bar and 10,000 timeline steps.
+- Visible playback progress refreshes at 50ms; paused controls at 500ms. Hidden controls and released players stop the progress timer. Icons are reused until the playback/mute state changes.
+- Mute is restored alongside position and play/pause state, including activity recreation.
+- Recognition models, matching policy, permissions, application ID and database remain at the existing release baseline.
+
+Validation: 410 Android tests and four Python release-verifier tests passed. Release APK/AAB compilation, lint (zero errors), archive/native alignment and publishing checks passed. Local outputs are unsigned. Actual control views were rendered and reviewed in light/dark at 320dp width.
+
+Physical-device review of playback, gestures and long-running recognition remains necessary before production.
+
+## Earlier release preparation
+
 # Release preparation review
 
 Candidate **1.0.0-rc2 (42)**, based on delivered **0.9.1-media-fixes (40)**. Existing application ID, face database schema, recognition model, matching thresholds and release signing secret names are retained.

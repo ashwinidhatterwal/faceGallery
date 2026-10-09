@@ -1,6 +1,6 @@
 # Publish Face Gallery
 
-Source release candidate: **1.0.0-rc2**, version code **42**, application ID **com.mosaic.gallery**. This package prepares the app for Play testing and submission; production approval is not yet established. Use your existing Play developer account.
+Source release candidate: **1.0.0-rc3**, version code **43**, application ID **com.mosaic.gallery**. This package prepares the app for Play testing and submission; production approval is not yet established. Use your existing Play developer account.
 
 ## 1. Publish the prepared privacy page
 

@@ -30,6 +30,7 @@ class MainActivity : Activity() {
     private lateinit var navigation: LinearLayout
     private var page = "Photos"
     private var photoColumns=4
+    private var cameraOnly=true
     private lateinit var selectionBar: LinearLayout
     private lateinit var progress: ProgressBar
     private lateinit var grid: RecyclerView
@@ -69,6 +70,7 @@ class MainActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         photoColumns=(state?.getInt("photoColumns")?:getSharedPreferences("gallery-layout",0).getInt("photoColumns",4)).coerceIn(2,8)
+        cameraOnly=state?.getBoolean("cameraOnly")?:getSharedPreferences("gallery-layout",0).getBoolean("cameraOnly",true)
         permissionInFlight=state?.getBoolean("permissionInFlight")?:false
         scrollPosition = state?.getInt("scrollPosition") ?: 0
         album = state?.getString("album").orEmpty()
@@ -100,6 +102,7 @@ class MainActivity : Activity() {
                 returnUri=null
                 val intent=Intent(this,PhotoActivity::class.java).setData(photo.uri)
                     .putExtra("name",photo.displayName).putExtra("album",album).putExtra("mimeType",photo.mimeType)
+                    .putExtra("cameraOnly",page=="Photos" && !folderOpen && cameraOnly)
                 val thumbnail=if(photo.isVideo)null else adapter.thumbnailView(photo.uri.toString())
                 if(thumbnail!=null){thumbnail.transitionName="mosaic-photo";intent.putExtra("transition",true)
                     startActivity(intent,android.app.ActivityOptions.makeSceneTransitionAnimation(this,thumbnail,"mosaic-photo").toBundle())
@@ -147,7 +150,7 @@ class MainActivity : Activity() {
         state.putBoolean("folderOpen",folderOpen);state.putParcelable("albumLayout",albumLayout)
         state.putInt("scrollPosition", if (adapter.itemCount > 0) (grid.layoutManager as? GridLayoutManager)?.findFirstVisibleItemPosition()?.coerceAtLeast(0) ?: 0 else scrollPosition)
         state.putString("page", page); state.putString("album", album); state.putBoolean("selecting", selecting)
-        state.putStringArrayList("selected", ArrayList(selected)); deletion.save(state); super.onSaveInstanceState(state)
+        state.putStringArrayList("selected", ArrayList(selected)); deletion.save(state); state.putBoolean("cameraOnly",cameraOnly); super.onSaveInstanceState(state)
     }
     override fun onDestroy() { if(observed)contentResolver.unregisterContentObserver(observer); folderAnimation?.cancel();glide?.detach();parentAdapter?.close();deletion.close(); adapter.close(); io.shutdownNow(); super.onDestroy() }
     private fun buildUi(): View {
@@ -228,11 +231,22 @@ class MainActivity : Activity() {
         updateSelection()
     }
     private fun overflow(anchor:View){
-        GalleryMenu.show(this,if(folderOpen)album.ifBlank{"Library"}else page,listOf(
-            GalleryMenu.Action("personAdd","People"){startActivity(Intent(this,PeopleActivity::class.java))},
-            GalleryMenu.Action("redo","Refresh library"){adapter.retryThumbnails();refreshGallery()},
-            GalleryMenu.Action("settings","Settings"){startActivity(Intent(this,SettingsActivity::class.java))}
-        ),anchor)
+        val actions=mutableListOf<GalleryMenu.Action>()
+        if(page=="Photos" && !folderOpen){
+            actions+=GalleryMenu.Action(if(cameraOnly)"photo"else"check", "All photos and videos") { setCameraOnly(false) }
+            actions+=GalleryMenu.Action(if(cameraOnly)"check"else"photo", "Only camera") { setCameraOnly(true) }
+        }
+        actions+=GalleryMenu.Action("redo","Refresh library"){adapter.retryThumbnails();refreshGallery()}
+        actions+=GalleryMenu.Action("settings","Settings"){startActivity(Intent(this,SettingsActivity::class.java))}
+        GalleryMenu.show(this,if(folderOpen)album.ifBlank{"Library"}else page,actions,anchor)
+    }
+    private fun setCameraOnly(value:Boolean){
+        if(cameraOnly==value)return
+        cameraOnly=value
+        getSharedPreferences("gallery-layout",0).edit().putBoolean("cameraOnly",value).apply()
+        selecting=false;selected.clear();scrollPosition=0
+        render()
+
     }
     private fun toggle(photo: PhotoRecord) {
         val key = photo.uri.toString(); if (!selected.add(key)) selected.remove(key); updateSelection()
@@ -266,11 +280,11 @@ class MainActivity : Activity() {
     }
     private fun showAlbum(clearCache:Boolean=false){
         val favorites=GalleryStyle.favorites(this)
-        visible=allPhotos.filter{album.isEmpty()||if(album=="@favorites")it.uri.toString() in favorites else if(album=="@other")it.album.isBlank() else it.album==album}
+        visible=allPhotos.filter{(page!="Photos" || folderOpen || !cameraOnly || CameraMedia.contains(it)) && (album.isEmpty()||if(album=="@favorites")it.uri.toString() in favorites else if(album=="@other")it.album.isBlank() else it.album==album)}
         adapter.submitList(visible,clearCache);adapter.setSelection(selected.toSet())
         if(visible.isNotEmpty())grid.scrollToPosition(scrollPosition.coerceIn(0,adapter.itemCount-1))
         message.visibility=if(visible.isEmpty()&&page!="Albums")View.VISIBLE else View.GONE
-        message.text="No accessible photos or videos"
+        message.text=if(page=="Photos" && cameraOnly)"No accessible camera photos or videos. Choose All photos and videos in the menu."else "No accessible photos or videos"
         updateCount()
     }
     private fun startAutomaticRecognition(){

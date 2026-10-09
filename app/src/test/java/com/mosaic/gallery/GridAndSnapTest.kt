@@ -59,7 +59,7 @@ class GridAndSnapTest {
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300));assertEquals(0f,view.rotationDegrees,0f)
         val m=FloatArray(9);view.imageMatrix.getValues(m);assertEquals(3.6f,m[0],.02f)
     }
-    private fun photos()=(0..179).map{PhotoRecord(it.toLong(),Uri.parse("content://grid-test/$it"),"$it.jpg",(it/30+1)*86_400_000L,400,300)}
+    private fun photos()=(0..179).map{PhotoRecord(it.toLong(),Uri.parse("content://grid-test/$it"),"$it.jpg",(it/30+1)*86_400_000L,400,300,album="Camera")}
     @Test fun mainGridPinchReflowsSquareCellsFullWidthHeadersAndRemembersSize(){
         val c=Robolectric.buildActivity(MainActivity::class.java).create().start().visible();val activity=c.get()
         fun field(name:String)=MainActivity::class.java.getDeclaredField(name).apply{isAccessible=true}

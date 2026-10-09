@@ -109,7 +109,7 @@ class PhotoActivity : Activity() {
             onSelected={photo->if(peopleSheet.isShowing)peopleSheet.dismiss();current=photo;if(!photo.isVideo)peopleSheet.prepare(photo);editAction.visibility=if(photo.isVideo)View.GONE else View.VISIBLE;status.text="";updateTitle();updateNavigation()}
             onImageReady={available->peopleSheet.updatePreview((pager.currentImage()?.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap);current?.takeIf{!it.isVideo}?.let{peopleSheet.prepare(it)};status.text=if(available || current?.isVideo==true)""else"Media unavailable";startPostponedEnterTransition()}
         }
-        state?.getString("videoUri")?.let{pager.restoreVideoState(GalleryVideoView.State(it,state.getLong("videoPosition"),state.getBoolean("videoPlaying",true)))}
+        state?.getString("videoUri")?.let{pager.restoreVideoState(GalleryVideoView.State(it,state.getLong("videoPosition"),state.getBoolean("videoPlaying",true),state.getBoolean("videoMuted",false)))}
         root.addView(pager,FrameLayout.LayoutParams(-1,-1))
         chrome.addView(Space(this),LinearLayout.LayoutParams(-1,0,1f))
         filmAdapter=FilmstripAdapter(this){photo->pager.goTo(photo.uri.toString())}
@@ -176,7 +176,7 @@ class PhotoActivity : Activity() {
         worker.execute {
             val favorites=GalleryStyle.favorites(this)
             val result = runCatching { val available=GalleryData.load(this,signal).photos
-                val filtered=if(intent.getBooleanExtra("peopleSearch",false))PeopleSearch.filter(available,PeopleSearch.cachedRead(this,available),PeopleSearch.Query(intent.getStringExtra("searchText").orEmpty(),intent.getLongExtra("searchPerson",-1).takeIf{it>=0},intent.getStringExtra("searchFrom")?.let(java.time.LocalDate::parse),intent.getStringExtra("searchThrough")?.let(java.time.LocalDate::parse)),keepGoing={!signal.isCanceled}) else available.filter { (album.isEmpty() || if(album=="@favorites")it.uri.toString() in favorites else if(album=="@other")it.album.isBlank() else it.album == album) && (intent.getStringExtra("query").orEmpty().let{q -> q.isEmpty() || it.displayName.contains(q,true) || it.album.contains(q,true)}) };available to filtered }.getOrNull()
+                val filtered=if(intent.getBooleanExtra("peopleSearch",false))PeopleSearch.filter(available,PeopleSearch.cachedRead(this,available),PeopleSearch.Query(intent.getStringExtra("searchText").orEmpty(),intent.getLongExtra("searchPerson",-1).takeIf{it>=0},intent.getStringExtra("searchFrom")?.let(java.time.LocalDate::parse),intent.getStringExtra("searchThrough")?.let(java.time.LocalDate::parse)),keepGoing={!signal.isCanceled}) else available.filter { (!intent.getBooleanExtra("cameraOnly",false) || CameraMedia.contains(it)) && (album.isEmpty() || if(album=="@favorites")it.uri.toString() in favorites else if(album=="@other")it.album.isBlank() else it.album == album) && (intent.getStringExtra("query").orEmpty().let{q -> q.isEmpty() || it.displayName.contains(q,true) || it.album.contains(q,true)}) };available to filtered }.getOrNull()
             runOnUiThread {
                 if (!active || signal.isCanceled || isDestroyed) return@runOnUiThread
                 val list=result?.second
@@ -237,7 +237,7 @@ class PhotoActivity : Activity() {
         pager.pause(retainImage=closing)
         super.onPause()
     }
-    override fun onSaveInstanceState(state: Bundle) { state.putString("uri", current?.uri.toString());state.putString("mimeType",current?.mimeType);pager.videoState()?.let{state.putString("videoUri",it.uri);state.putLong("videoPosition",it.position);state.putBoolean("videoPlaying",it.playing)}; deletion.save(state); super.onSaveInstanceState(state) }
+    override fun onSaveInstanceState(state: Bundle) { state.putString("uri", current?.uri.toString());state.putString("mimeType",current?.mimeType);pager.videoState()?.let{state.putString("videoUri",it.uri);state.putLong("videoPosition",it.position);state.putBoolean("videoPlaying",it.playing);state.putBoolean("videoMuted",it.muted)}; deletion.save(state); super.onSaveInstanceState(state) }
     @Deprecated("Legacy activity results")
     override fun onActivityResult(code: Int, result: Int, data: Intent?) { super.onActivityResult(code, result, data); deletion.onActivityResult(code, result) }
     override fun onRequestPermissionsResult(code: Int, permissions: Array<out String>, results: IntArray) {

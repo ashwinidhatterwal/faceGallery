@@ -1,0 +1,31 @@
+{
+  "versionName": "1.0.0-rc3",
+  "versionCode": 43,
+  "tests": {
+    "tests": 410,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lintErrors": 0,
+  "lintWarnings": 130,
+  "releaseBuild": "passed; unsigned local validation only",
+  "releaseVerification": {
+    "model_sha256": "35e2fc149c76efefefbc264fcb5153a467a1b490a82001aba19bd7fc432ec235",
+    "native_libraries": [
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libface_detector_v2_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libtensorflowlite_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libface_detector_v2_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libtensorflowlite_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libface_detector_v2_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libtensorflowlite_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libface_detector_v2_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libtensorflowlite_jni.so"
+    ],
+    "signed_required": false,
+    "apk_sha256": "475fb6188ed903bfae40e1529dcddd5e55d614703fc8f5908f0ffa914002b955",
+    "bundle_sha256": "d4e39e69d24cbacb57c6458b88ae902a2680cccd92e30532841a7b15e57cc2c5"
+  },
+  "visualReview": "Actual video control views rendered and reviewed in light/dark at 320dp width",
+  "deviceLimit": "Real phone playback/gestures and long-running recognition still need owner acceptance"
+}
