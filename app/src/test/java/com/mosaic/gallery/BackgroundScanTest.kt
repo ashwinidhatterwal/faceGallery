@@ -24,7 +24,7 @@ class BackgroundScanTest {
         override fun accessiblePhotos(signal:CancellationSignal):List<PhotoRecord>{calls++;entered.countDown();release.await(5,TimeUnit.SECONDS);returned.countDown();return emptyList()}
     }
     private val app get()=RuntimeEnvironment.getApplication()
-    @Before fun reset(){FaceJobs.publish(FaceJobs.State());app.deleteDatabase("faces.db")}
+    @Before fun reset(){RecognitionConsent.accept(RuntimeEnvironment.getApplication());FaceJobs.publish(FaceJobs.State());app.deleteDatabase("faces.db")}
     @After fun cleanup(){FaceJobs.publish(FaceJobs.State());app.deleteDatabase("faces.db")}
     private fun waitUntilIdle(){
         val deadline=System.nanoTime()+TimeUnit.SECONDS.toNanos(5)

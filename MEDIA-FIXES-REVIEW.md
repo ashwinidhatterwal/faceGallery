@@ -1,4 +1,4 @@
-# Mosaic Gallery 0.9.1 — version code 40
+# Face Gallery 0.9.1 — version code 40
 
 This update fixes the 0.9.0 media upgrade. It keeps the gallery face model, database schema, saved identities, 24-hour notification pause and private signing workflow.
 

@@ -28,7 +28,7 @@ class PrivacyActivity:Activity() {
             isChecked=AutoPeople.enabled(this@PrivacyActivity)
             setOnCheckedChangeListener{_,enabled->
                 if(updating)return@setOnCheckedChangeListener
-                if(enabled){AutoPeople.resume(this@PrivacyActivity);AutoPeople.ensure(this@PrivacyActivity)}
+                if(enabled){RecognitionConsent.request(this@PrivacyActivity,{AutoPeople.resume(this@PrivacyActivity);AutoPeople.ensure(this@PrivacyActivity)},{updating=true;automatic.isChecked=false;updating=false})}
                 else {
                     AutoPeople.pause(this@PrivacyActivity)
                     if(FaceJobs.state.busy)startService(Intent(this@PrivacyActivity,FaceScanService::class.java).setAction(FaceScanService.PAUSE))
@@ -38,12 +38,16 @@ class PrivacyActivity:Activity() {
         body.addView(automatic)
         body.addView(GalleryStyle.text(this,"Pause automatic recognition without deleting saved people. Turn it on again to resume when the phone is ready.",14f,GalleryStyle.muted(this)))
         contactMatching=CheckBox(this).apply{
-            text="Match contact photos automatically";setTextColor(GalleryStyle.textColor(context));isChecked=ContactRecognition.enabled(this@PrivacyActivity)
-            setOnCheckedChangeListener{_,enabled->ContactRecognition.setEnabled(this@PrivacyActivity,enabled)}
+            text="Match contact photos automatically";setTextColor(GalleryStyle.textColor(context));isChecked=RecognitionConsent.allowed(this@PrivacyActivity) && ContactRecognition.enabled(this@PrivacyActivity)
+            setOnCheckedChangeListener{_,enabled->
+                if(updating)return@setOnCheckedChangeListener
+                if(enabled)RecognitionConsent.request(this@PrivacyActivity,{ContactRecognition.setEnabled(this@PrivacyActivity,true)},{updating=true;contactMatching.isChecked=false;updating=false})
+                else ContactRecognition.setEnabled(this@PrivacyActivity,false)
+            }
         }
         body.addView(contactMatching)
         body.addView(GalleryStyle.text(this,"With contacts access, clear portrait matches name people automatically, entirely on your phone. Saved names and corrections take priority. Missing or unclear contact photos leave grouping unchanged. Turn this off to remove cached contact face signatures; saved names and links remain editable.",14f,GalleryStyle.muted(this)))
-        contactPermission=GalleryStyle.button(this,"Allow phone contacts"){requestPermissions(arrayOf(android.Manifest.permission.READ_CONTACTS),PeopleNames.PERMISSION)}
+        contactPermission=GalleryStyle.button(this,"Allow phone contacts"){RecognitionConsent.request(this,{requestPermissions(arrayOf(android.Manifest.permission.READ_CONTACTS),PeopleNames.PERMISSION)})}
         body.addView(contactPermission)
         body.addView(GalleryStyle.text(this,assets.open("PRIVACY.txt").bufferedReader().use{it.readText()},15f))
         body.addView(GalleryStyle.action(this,"settings","Manage permissions and app storage"){
@@ -52,6 +56,6 @@ class PrivacyActivity:Activity() {
         root.addView(ScrollView(this).apply{addView(body)},LinearLayout.LayoutParams(-1,0,1f))
         Ui.insets(this,root);setContentView(root);Ui.back(this){finish()}
     }
-    override fun onResume(){super.onResume();updating=true;automatic.isChecked=AutoPeople.enabled(this);contactMatching.isChecked=ContactRecognition.enabled(this);updating=false;contactPermission.visibility=if(ContactRecognition.allowed(this))android.view.View.GONE else android.view.View.VISIBLE}
+    override fun onResume(){super.onResume();updating=true;automatic.isChecked=AutoPeople.enabled(this);contactMatching.isChecked=RecognitionConsent.allowed(this) && ContactRecognition.enabled(this);updating=false;contactPermission.visibility=if(ContactRecognition.allowed(this))android.view.View.GONE else android.view.View.VISIBLE}
     override fun onRequestPermissionsResult(code:Int,permissions:Array<out String>,results:IntArray){super.onRequestPermissionsResult(code,permissions,results);if(code==PeopleNames.PERMISSION){ContactRecognition.invalidate(this);AutoPeople.ensure(this,1_000);contactPermission.visibility=if(ContactRecognition.allowed(this))android.view.View.GONE else android.view.View.VISIBLE}}
 }

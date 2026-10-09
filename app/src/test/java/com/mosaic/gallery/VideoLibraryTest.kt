@@ -20,7 +20,7 @@ import org.robolectric.shadows.ShadowContentResolver
 class VideoLibraryTest {
     private val app get()=RuntimeEnvironment.getApplication()
     private val video=PhotoRecord(1,Uri.parse("content://media/external/video/media/1"),"clip.mp4",500000,1920,1080,mimeType="video/mp4",durationMillis=61000)
-    @Before fun setup(){Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_EXTERNAL_STORAGE);PhotoIndex.clear(app);app.deleteDatabase("faces.db")}
+    @Before fun setup(){RecognitionConsent.accept(RuntimeEnvironment.getApplication());Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_EXTERNAL_STORAGE);PhotoIndex.clear(app);app.deleteDatabase("faces.db")}
     @After fun cleanup(){PhotoIndex.clear(app);app.deleteDatabase("faces.db")}
     @Test fun libraryCombinesPhotosAndVideosWithoutCollidingIds(){
         ShadowContentResolver.registerProviderInternal("media",object:ContentProvider(){

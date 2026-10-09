@@ -21,7 +21,7 @@ class AutomaticPeopleTest {
     private val app get()=RuntimeEnvironment.getApplication()
     private val photo=PhotoRecord(1,Uri.parse("content://auto/1"),"one.jpg",120000,400,300,"Camera")
     private val face=FaceObservation(.1f,.1f,.4f,.5f,0f,0f,0f,120f,.95f,"Anchor")
-    @Before fun reset(){FaceJobs.publish(FaceJobs.State());app.deleteDatabase("faces.db");app.getSharedPreferences("automatic-people",0).edit().clear().commit();app.getSystemService(JobScheduler::class.java).cancelAll();Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_IMAGES);ShadowSystemClock.advanceBy(Duration.ofMinutes(2));ReflectionHelpers.setField(FaceWork,"editingUntil",0L)}
+    @Before fun reset(){RecognitionConsent.accept(RuntimeEnvironment.getApplication());FaceJobs.publish(FaceJobs.State());app.deleteDatabase("faces.db");app.getSharedPreferences("automatic-people",0).edit().clear().commit();app.getSystemService(JobScheduler::class.java).cancelAll();Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_IMAGES);ShadowSystemClock.advanceBy(Duration.ofMinutes(2));ReflectionHelpers.setField(FaceWork,"editingUntil",0L)}
     @After fun end(){Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_MEDIA_IMAGES);app.getSystemService(JobScheduler::class.java).cancelAll();app.deleteDatabase("faces.db")}
     @Test fun schedulingIsUniqueDurableAndNeedsNoNetwork(){
         repeat(3){AutoPeople.ensure(app)};val s=app.getSystemService(JobScheduler::class.java)
@@ -53,7 +53,7 @@ class AutomaticPeopleTest {
         FaceStore(app).use{store->store.save(photo,listOf(face))}
         assertTrue(AutoPeople.hasPending(app,listOf(photo)))
     }
-    @Test fun galleryAutomaticallyLaunchesCompleteRecognitionWithoutOpeningPeople(){
+    @Test fun gallerySchedulesRecognitionWithoutStartingForegroundService(){
         Shadows.shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         val screen=Robolectric.buildActivity(MainActivity::class.java).create().start().visible();val activity=screen.get()
         fun field(name:String)=MainActivity::class.java.getDeclaredField(name).apply{isAccessible=true}
@@ -62,8 +62,7 @@ class AutomaticPeopleTest {
         start.invoke(activity)
         (field("io").get(activity) as java.util.concurrent.ExecutorService).submit{}.get(5,TimeUnit.SECONDS)
         Shadows.shadowOf(Looper.getMainLooper()).idle()
-        val command=Shadows.shadowOf(activity).nextStartedService!!
-        assertEquals(FaceScanService::class.java.name,command.component!!.className);assertEquals(FaceScanService.AUTO,command.action)
+        assertNull(Shadows.shadowOf(activity).nextStartedService)
         assertTrue(app.getSystemService(JobScheduler::class.java).getPendingJob(AutoPeople.BATCH)!!.isPersisted)
         FaceJobs.publish(FaceJobs.State(mode=FaceScanService.GROUP));start.invoke(activity)
         assertNull(Shadows.shadowOf(activity).nextStartedService)
@@ -89,8 +88,9 @@ class AutomaticPeopleTest {
         val screen=Robolectric.buildActivity(MainActivity::class.java).create().start().resume().visible()
         try{
             assertTrue(entered.await(5,TimeUnit.SECONDS));Shadows.shadowOf(Looper.getMainLooper()).idle()
-            assertEquals(FaceScanService.AUTO,Shadows.shadowOf(screen.get()).nextStartedService!!.action)
-            assertEquals(1L,release.count) // Service started before the media query completed.
+            assertNull(Shadows.shadowOf(screen.get()).nextStartedService)
+            assertNotNull(app.getSystemService(JobScheduler::class.java).getPendingJob(AutoPeople.BATCH))
+            assertEquals(1L,release.count) // Durable scheduling does not wait for the media query.
         }finally{release.countDown();screen.pause().stop().destroy();PhotoIndex.clear(app)}
     }
     @Test fun closingGalleryDuringPreflightNeverLaunchesAServiceFromBackground(){

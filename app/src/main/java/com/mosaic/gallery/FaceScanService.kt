@@ -46,6 +46,7 @@ open class FaceScanService:Service(){
         }
         val requested=intent?.action
         if(requested !in listOf(DETECT,SIGNATURES,GROUP,AUTO)){stopSelf();return START_NOT_STICKY}
+        if(!RecognitionConsent.allowed(this)){stopSelf();return START_NOT_STICKY}
         if(started)return START_NOT_STICKY
         if(FaceJobs.state.busy){stopSelf();return START_NOT_STICKY}
         if(requested==AUTO && (!AutoPeople.allowed(this) || !AutoPeople.enabled(this))){stopSelf();return START_NOT_STICKY}

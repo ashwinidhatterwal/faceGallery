@@ -1,4 +1,4 @@
-# Mosaic Gallery 0.9.0 media upgrade
+# Face Gallery 0.9.0 media upgrade
 
 Version code 39; model, face-database schema, signing workflow and saved identities unchanged.
 

@@ -19,6 +19,7 @@ object AutoPeople {
     fun allowed(c:Context)=c.checkSelfPermission(if(Build.VERSION.SDK_INT>=33)Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE)==PackageManager.PERMISSION_GRANTED || (Build.VERSION.SDK_INT>=34 && c.checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)==PackageManager.PERMISSION_GRANTED)
     fun pauseUntil(c:Context)=prefs(c).getLong("pause-until",0)
     @Synchronized fun enabled(c:Context,now:Long=System.currentTimeMillis()):Boolean {
+        if(!RecognitionConsent.allowed(c))return false
         val p=prefs(c);if(p.getBoolean("paused",false))return false
         val until=p.getLong("pause-until",0)
         if(until>now)return false

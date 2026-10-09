@@ -28,7 +28,7 @@ object ContactRecognition {
     private fun prefs(c:Context)=c.getSharedPreferences("contact-recognition",0)
     fun enabled(c:Context)=prefs(c).getBoolean("enabled",true)
     fun allowed(c:Context)=c.checkSelfPermission(Manifest.permission.READ_CONTACTS)==PackageManager.PERMISSION_GRANTED
-    fun available(c:Context)=enabled(c) && allowed(c)
+    fun available(c:Context)=RecognitionConsent.allowed(c) && enabled(c) && allowed(c)
     fun setEnabled(c:Context,value:Boolean){
         prefs(c).edit().putBoolean("enabled",value).remove("checked").remove("provider-retry-at").apply()
         if(value)AutoPeople.ensure(c,1_000)

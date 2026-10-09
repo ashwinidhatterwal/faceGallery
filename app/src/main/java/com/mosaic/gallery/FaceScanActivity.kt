@@ -73,6 +73,7 @@ class FaceScanActivity:Activity(){
         clear.isEnabled=loaded && !state.busy
     }
     private fun startScan(mode:String){
+        if(!RecognitionConsent.allowed(this)){RecognitionConsent.request(this,{startScan(mode)});return}
         if(FaceJobs.state.busy)return
         if(android.os.Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED && !getSharedPreferences("face-notifications",0).getBoolean("asked",false)){
             getSharedPreferences("face-notifications",0).edit().putBoolean("asked",true).apply()

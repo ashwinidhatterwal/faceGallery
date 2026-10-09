@@ -23,7 +23,7 @@
         android:allowBackup="false"
         android:usesCleartextTraffic="false"
         android:enableOnBackInvokedCallback="true"
-        android:label="Mosaic Gallery"
+        android:label="Face Gallery"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"

@@ -17,7 +17,7 @@ import org.robolectric.annotation.Config
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @Config(sdk=[28])
 class PermissionGateTest {
-    @Before fun setup(){RuntimeEnvironment.getApplication().getSharedPreferences("startup-access",0).edit().clear().commit();shadowOf(RuntimeEnvironment.getApplication()).denyPermissions(Manifest.permission.READ_CONTACTS,Manifest.permission.READ_EXTERNAL_STORAGE)}
+    @Before fun setup(){RecognitionConsent.accept(RuntimeEnvironment.getApplication());RuntimeEnvironment.getApplication().getSharedPreferences("startup-access",0).edit().clear().commit();shadowOf(RuntimeEnvironment.getApplication()).denyPermissions(Manifest.permission.READ_CONTACTS,Manifest.permission.READ_EXTERNAL_STORAGE)}
     @After fun reset(){shadowOf(RuntimeEnvironment.getApplication()).denyPermissions(Manifest.permission.READ_EXTERNAL_STORAGE)}
     private fun root(activity:MainActivity)=activity.findViewById<ViewGroup>(android.R.id.content).getChildAt(0)
     @Test fun firstLaunchRequestsSystemPermissionWithoutGalleryScreen(){

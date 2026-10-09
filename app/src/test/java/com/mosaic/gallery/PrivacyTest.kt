@@ -14,12 +14,13 @@ import org.robolectric.annotation.Config
 @RunWith(org.robolectric.RobolectricTestRunner::class)
 @Config(sdk=[35])
 class PrivacyTest {
+    @org.junit.Before fun consent(){RecognitionConsent.accept(org.robolectric.RuntimeEnvironment.getApplication())}
     private fun texts(view:View):List<TextView> = (if(view is TextView)listOf(view) else emptyList()) +
         if(view is ViewGroup)(0 until view.childCount).flatMap{texts(view.getChildAt(it))}else emptyList()
     @Test fun policyIsReadableOfflineAndStorageActionTargetsThisApp(){
         val controller=Robolectric.buildActivity(PrivacyActivity::class.java).setup()
         val activity=controller.get();val labels=texts(activity.window.decorView)
-        val policy=labels.single{it.text.toString().contains("Mosaic Gallery Privacy Policy")}.text.toString()
+        val policy=labels.single{it.text.toString().contains("Face Gallery Privacy Policy")}.text.toString()
         assertTrue(policy.contains("Contacts access is optional"));assertTrue(policy.contains("technical SDK metrics"))
         assertTrue(policy.contains("Background recognition first"));assertTrue(policy.contains("does not contain photo pixels"))
         (labels.single{it.text.toString()=="Manage permissions and app storage"}.parent as View).performClick()

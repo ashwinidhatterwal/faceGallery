@@ -31,7 +31,7 @@ class ContactRecognitionTest {
         return people.record(people.members().first{it.key.uri==record.uri.toString()},GroupRules.Decision(seed=true,status="known"))!!
     }
     private fun reference(id:Int=1,score:Float=1f)=ContactRecognition.Reference(contact(id),vector(score))
-    @Before fun before(){app.deleteDatabase("faces.db");app.getSharedPreferences("contact-recognition",0).edit().clear().commit();app.getSharedPreferences("automatic-people",0).edit().clear().commit();Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_CONTACTS)}
+    @Before fun before(){RecognitionConsent.accept(RuntimeEnvironment.getApplication());app.deleteDatabase("faces.db");app.getSharedPreferences("contact-recognition",0).edit().clear().commit();app.getSharedPreferences("automatic-people",0).edit().clear().commit();Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_CONTACTS)}
     @After fun after(){app.deleteDatabase("faces.db")}
     @Test fun neverQueriesContactsWithoutPermission(){val provider=Contacts();ShadowContentResolver.registerProviderInternal(ContactsContractAuthority,provider);assertTrue(ContactRecognition.photos(app,CancellationSignal()).isEmpty());assertEquals(0,provider.calls)}
     @Test fun providerUsesNamesAndPhotosWithoutNumbersOrRemoteDirectory(){val provider=Contacts();ShadowContentResolver.registerProviderInternal(ContactsContractAuthority,provider);Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_CONTACTS);val result=ContactRecognition.photos(app,CancellationSignal());assertEquals(150,result.size);assertEquals("10|content://portraits/1|100",result.first().stamp);assertFalse(provider.projection!!.any{it.contains("number")});assertEquals("content://com.android.contacts/contacts",provider.uri.toString())}

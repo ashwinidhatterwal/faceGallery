@@ -20,7 +20,7 @@ import org.robolectric.shadows.ShadowContentResolver
 class MediaRegressionTest {
     private val app get()=RuntimeEnvironment.getApplication()
     private val image=PhotoRecord(1,Uri.parse("content://media/external/images/media/1"),"one.jpg",1000,400,300,"Camera")
-    @Before fun setup(){
+    @Before fun setup(){RecognitionConsent.accept(RuntimeEnvironment.getApplication());
         app.getSharedPreferences("startup-access",0).edit().clear().commit()
         app.getSharedPreferences("automatic-people",0).edit().clear().commit();AutoPeople.pause(app)
         Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_IMAGES,Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,Manifest.permission.READ_CONTACTS)

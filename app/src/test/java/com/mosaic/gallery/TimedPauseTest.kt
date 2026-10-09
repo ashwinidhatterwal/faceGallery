@@ -15,7 +15,7 @@ import org.robolectric.util.ReflectionHelpers
 class TimedPauseTest {
     private val app get()=RuntimeEnvironment.getApplication()
     private val scheduler get()=app.getSystemService(JobScheduler::class.java)
-    @Before fun setup(){app.getSharedPreferences("automatic-people",0).edit().clear().commit();scheduler.cancelAll();Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_IMAGES);FaceJobs.publish(FaceJobs.State())}
+    @Before fun setup(){RecognitionConsent.accept(RuntimeEnvironment.getApplication());app.getSharedPreferences("automatic-people",0).edit().clear().commit();scheduler.cancelAll();Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_IMAGES);FaceJobs.publish(FaceJobs.State())}
     @After fun end(){scheduler.cancelAll();app.getSharedPreferences("automatic-people",0).edit().clear().commit()}
     @Test fun notificationPauseCreatesOneDurableNextDayWake(){
         AutoPeople.ensure(app);AutoPeople.pauseForDay(app)

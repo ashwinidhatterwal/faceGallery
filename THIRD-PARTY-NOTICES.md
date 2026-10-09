@@ -18,4 +18,4 @@ Bundled com.google.mlkit:face-detection:16.1.7 and its transitive runtime depend
 
 ## Local video playback
 
-AndroidX Media3 ExoPlayer and UI 1.11.1, Apache 2.0, from https://github.com/androidx/media . The full Apache 2.0 license is included in app/src/main/assets/LITERT-LICENSE.txt. Playback uses local media URIs; network permissions remain removed. The new launcher artwork is native vector artwork created for Mosaic Gallery.
+AndroidX Media3 ExoPlayer and UI 1.11.1, Apache 2.0, from https://github.com/androidx/media . The full Apache 2.0 license is included in app/src/main/assets/LITERT-LICENSE.txt. Playback uses local media URIs; network permissions remain removed. The new launcher artwork is native vector artwork created for Face Gallery.

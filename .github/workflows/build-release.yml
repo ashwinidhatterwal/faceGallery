@@ -56,6 +56,7 @@ jobs:
           chmod 600 "$RELEASE_STORE_FILE"
           unset UPLOAD_KEYSTORE_BASE64
 
+          python3 tools/check_play_preparation.py
           chmod +x ./gradlew
           ./gradlew --no-daemon \
             :app:testDebugUnitTest \
@@ -73,15 +74,15 @@ jobs:
           "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify "$APK"
 
           mkdir -p dist
-          cp "$APK" dist/Mosaic-Gallery-Release.apk
-          cp "$AAB" dist/Mosaic-Gallery-Release.aab
+          cp "$APK" dist/Face-Gallery-Release.apk
+          cp "$AAB" dist/Face-Gallery-Release.aab
           test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 2
           sha256sum dist/*
 
       - name: Upload exactly one APK and one AAB
         uses: actions/upload-artifact@v4
         with:
-          name: Mosaic-Gallery-Release
+          name: Face-Gallery-Release
           path: dist/
           if-no-files-found: error
           retention-days: 30

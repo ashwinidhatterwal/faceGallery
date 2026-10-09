@@ -26,7 +26,7 @@ import java.util.concurrent.TimeUnit
 class PhotoIndexTest {
     private val app get()=RuntimeEnvironment.getApplication()
     private val photo=PhotoRecord(1,Uri.parse("content://media/external/images/media/1"),"example.jpg",123,400,300,"Camera",123456,"/storage/DCIM/example.jpg")
-    @Before fun start(){shadowOf(app).grantPermissions(Manifest.permission.READ_EXTERNAL_STORAGE);PhotoIndex.clear(app)}
+    @Before fun start(){RecognitionConsent.accept(app);shadowOf(app).grantPermissions(Manifest.permission.READ_EXTERNAL_STORAGE);PhotoIndex.clear(app)}
     @After fun end(){PhotoIndex.clear(app);shadowOf(app).denyPermissions(Manifest.permission.READ_EXTERNAL_STORAGE)}
     @Test fun diskIndexRestoresAllMetadataAfterMemoryLoss(){
         val result=GalleryRepository.Result(listOf(photo),0);PhotoIndex.save(app,result);PhotoIndex.forgetMemory()

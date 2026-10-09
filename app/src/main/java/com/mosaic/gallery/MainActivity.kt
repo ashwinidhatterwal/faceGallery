@@ -59,6 +59,7 @@ class MainActivity : Activity() {
     private var loadedScope=""
     private var lastFavorites = emptySet<String>()
     private var permissionInFlight=false
+    private var consentShowing=false
     private lateinit var galleryRoot:View
     private var returnUri:String?=null
     private val refresh = Runnable { refreshGallery() }
@@ -119,7 +120,7 @@ class MainActivity : Activity() {
         if(requestStartupAccess())return
         galleryRoot.visibility=View.VISIBLE
         AutoPeople.ensure(this,0)
-        // A first installation has no index to inspect. Establish the service before a long media query.
+        // Schedule saved work before a potentially slow media query.
         if(!getDatabasePath("faces.db").exists() && FaceHeat(this).canRun())launchAutomaticRecognition()
         if(needsRefresh || loadedAccess!=currentAccess() || loadedScope!=MediaAccess.scope(this) || GalleryData.peek(this)==null)refreshGallery()
         else {
@@ -287,16 +288,8 @@ class MainActivity : Activity() {
     }
     private fun launchAutomaticRecognition(){
         if(!active || permissionInFlight || isDestroyed || isFinishing || !AutoPeople.canStartVisible(this))return
-        AutoPeople.ensure(this,0) // Durable recovery remains scheduled if the process is killed.
-        runCatching{startForegroundService(Intent(this,FaceScanService::class.java).setAction(FaceScanService.AUTO))}
-            .onFailure{AutoPeople.request(this,0)}
-            .onSuccess{
-                val preferences=getSharedPreferences("face-notifications",0)
-                if(Build.VERSION.SDK_INT>=33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED && !preferences.getBoolean("asked",false)){
-                    preferences.edit().putBoolean("asked",true).apply()
-                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS),3101)
-                }
-            }
+        // Only explicit recognition controls start a foreground service.
+        AutoPeople.ensure(this,0)
     }
     private fun refreshGallery() {
         if (!active) return
@@ -368,10 +361,27 @@ class MainActivity : Activity() {
     }
     /** Ask once on first launch/update; a declined optional permission stays optional. */
     private fun requestStartupAccess():Boolean {
+        if(!RecognitionConsent.decided(this)){
+            galleryRoot.visibility=View.INVISIBLE
+            if(!consentShowing){
+                consentShowing=true
+                fun continueStartup(){
+                    consentShowing=false
+                    if(!isDestroyed && !isFinishing && active && !requestStartupAccess()){
+                        galleryRoot.visibility=View.VISIBLE;refreshGallery()
+                    }
+                }
+                RecognitionConsent.request(this,{continueStartup()},{
+                    consentShowing=false
+                    if(RecognitionConsent.decided(this))continueStartup() else finish()
+                })
+            }
+            return true
+        }
         if(permissionInFlight)return currentAccess()==Access.NONE
         if(intent.getBooleanExtra("requestMedia",false)){intent.removeExtra("requestMedia");requestPhotoAccess();return currentAccess()==Access.NONE}
         val prefs=getSharedPreferences("startup-access",0)
-        val contacts=ContactRecognition.enabled(this) && !ContactRecognition.allowed(this) && !prefs.getBoolean("contacts-asked",false)
+        val contacts=RecognitionConsent.allowed(this) && ContactRecognition.enabled(this) && !ContactRecognition.allowed(this) && !prefs.getBoolean("contacts-asked",false)
         val videos=Build.VERSION.SDK_INT>=33 && !MediaAccess.fullVideos(this) && prefs.getInt("media-request-policy",0)<2
         if(currentAccess()!=Access.NONE && !contacts && !videos)return false
         val permissions=mutableListOf<String>()
