@@ -51,7 +51,7 @@ class PhotoPagerTest {
         touch(MotionEvent.ACTION_DOWN,900f)
         for(x in listOf(820f,680f,540f,400f,260f,180f))touch(MotionEvent.ACTION_MOVE,x)
         assertEquals(RecyclerView.SCROLL_STATE_DRAGGING,pager.scrollState)
-        assertTrue("Page must move before release",image.left< -400)
+        assertTrue("Page must move before release",(image.parent as android.view.View).left< -400)
         assertSame("Moving page must keep its drawable",drawable,image.drawable)
         touch(MotionEvent.ACTION_UP,180f);settle()
         assertEquals(1,selected);assertEquals(0,pager.currentImage()!!.left)

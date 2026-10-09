@@ -58,6 +58,9 @@ object GalleryStyle {
     fun add(bar: LinearLayout, view: View) { bar.addView(view, LinearLayout.LayoutParams(0, -2, 1f)) }
     fun icon(context:Context,name:String,tint:Int=iconColor(context)):Drawable {
         val resource=when(name){
+            "play" -> R.drawable.ic_play
+            "pause" -> R.drawable.ic_pause
+            "settings" -> R.drawable.ic_settings
             "back" -> R.drawable.ic_back
             "close" -> R.drawable.ic_close
             "check" -> R.drawable.ic_check

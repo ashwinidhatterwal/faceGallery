@@ -47,7 +47,7 @@ class PermissionGateTest {
     @Test @Config(sdk=[35]) fun modernAndroidAsksForPhotosAndContacts(){
         shadowOf(RuntimeEnvironment.getApplication()).denyPermissions(Manifest.permission.READ_MEDIA_IMAGES,Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
         val c=Robolectric.buildActivity(MainActivity::class.java).setup()
-        assertArrayEquals(arrayOf(Manifest.permission.READ_MEDIA_IMAGES,Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,Manifest.permission.READ_CONTACTS),shadowOf(c.get()).lastRequestedPermission.requestedPermissions)
+        assertArrayEquals(arrayOf(Manifest.permission.READ_MEDIA_IMAGES,Manifest.permission.READ_MEDIA_VIDEO,Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,Manifest.permission.READ_CONTACTS),shadowOf(c.get()).lastRequestedPermission.requestedPermissions)
         c.pause().stop().destroy()
     }
     @Test @Config(sdk=[35]) fun selectedPhotoAccessDoesNotAskForFullStorageAgain(){

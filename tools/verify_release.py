@@ -46,8 +46,9 @@ def verify_archives(bundle,apk,signed=False):
     sdk=Path(os.environ.get('ANDROID_HOME',os.environ.get('ANDROID_SDK_ROOT','')))
     tools=sdk/'build-tools/35.0.0';aapt=tools/'aapt'
     badging=subprocess.check_output([str(aapt),'dump','badging',str(apk)],text=True)
-    for forbidden in ('android.permission.INTERNET','android.permission.ACCESS_NETWORK_STATE','android.permission.MANAGE_EXTERNAL_STORAGE','android.permission.READ_MEDIA_VIDEO','application-debuggable'):
+    for forbidden in ('android.permission.INTERNET','android.permission.ACCESS_NETWORK_STATE','android.permission.MANAGE_EXTERNAL_STORAGE','application-debuggable'):
         if forbidden in badging:raise ValueError('Unexpected release manifest entry: '+forbidden)
+    if "android.permission.READ_MEDIA_VIDEO" not in badging:raise ValueError("Missing video library permission")
     config=(Path(__file__).resolve().parents[1]/'app/build.gradle.kts').read_text()
     version=re.search(r'versionCode\s*=\s*(\d+)',config).group(1)
     if "name='com.mosaic.gallery'" not in badging or f"versionCode='{version}'" not in badging:raise ValueError('Unexpected application ID/version')

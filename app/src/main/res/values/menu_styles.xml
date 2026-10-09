@@ -1,0 +1,1 @@
+<resources><style name="GalleryMenuAnimation"><item name="android:windowEnterAnimation">@anim/gallery_menu_enter</item><item name="android:windowExitAnimation">@anim/gallery_menu_exit</item></style></resources>

@@ -19,8 +19,8 @@ android {
         applicationId = "com.mosaic.gallery"
         minSdk = 28
         targetSdk = 36
-        versionCode = 38
-        versionName = "0.8.2-background"
+        versionCode = 39
+        versionName = "0.9.0-media"
     }
 
     // The release is signed only with credentials supplied at build time.
@@ -63,6 +63,8 @@ kotlin {
 }
 
 dependencies {
+    implementation("androidx.media3:media3-exoplayer:1.11.1")
+    implementation("androidx.media3:media3-ui:1.11.1")
     implementation("com.google.ai.edge.litert:litert:1.4.1")
     implementation("com.google.mlkit:face-detection:16.1.7")
     implementation("androidx.recyclerview:recyclerview:1.4.0")

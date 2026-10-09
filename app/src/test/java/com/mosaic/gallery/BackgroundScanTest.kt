@@ -45,7 +45,7 @@ class BackgroundScanTest {
         val notification=app.getSystemService(NotificationManager::class.java).activeNotifications.single().notification
         assertEquals("Working quietly in the background",notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT))
         assertFalse(notification.extras.containsKey(android.app.Notification.EXTRA_PROGRESS))
-        assertEquals("Pause",notification.actions.single().title)
+        assertEquals("Pause for 24 hours",notification.actions.single().title)
         service.release.countDown();waitUntilIdle();controller.destroy()
     }
     @Test fun automaticSessionHonorsSavedPauseAndEditingPauseIsTemporary(){
@@ -75,12 +75,12 @@ class BackgroundScanTest {
         val controller=Robolectric.buildService(ControlledService::class.java).create();val service=controller.get()
         service.onStartCommand(Intent(app,FaceScanService::class.java).setAction(FaceScanService.SIGNATURES),0,1);assertTrue(service.entered.await(5,TimeUnit.SECONDS))
         val notification=app.getSystemService(NotificationManager::class.java).activeNotifications.first().notification
-        assertEquals("Pause",notification.actions[0].title)
+        assertEquals("Pause for 24 hours",notification.actions[0].title)
         notification.actions[0].actionIntent.send()
-        val command=Shadows.shadowOf(app).nextStartedService;assertEquals(FaceScanService.PAUSE,command.action)
+        val command=Shadows.shadowOf(app).nextStartedService;assertEquals(FaceScanService.PAUSE_DAY,command.action)
         service.onStartCommand(command,0,2);assertTrue(FaceJobs.state.pausing)
         val wake=org.robolectric.shadows.ShadowPowerManager.getLatestWakeLock()
-        service.release.countDown();waitUntilIdle();assertFalse(wake.isHeld);assertTrue(FaceJobs.state.message.startsWith("Paused"));assertFalse(AutoPeople.enabled(app));assertTrue(app.getSystemService(android.app.job.JobScheduler::class.java).allPendingJobs.isEmpty());controller.destroy()
+        service.release.countDown();waitUntilIdle();assertFalse(wake.isHeld);assertTrue(FaceJobs.state.message.startsWith("Paused"));assertFalse(AutoPeople.enabled(app));assertEquals(listOf(AutoPeople.RESUME),app.getSystemService(android.app.job.JobScheduler::class.java).allPendingJobs.map{it.id});controller.destroy()
     }
     @Test fun duplicateStartDoesNotCreateAnotherScan(){
         val controller=Robolectric.buildService(ControlledService::class.java).create();val service=controller.get()

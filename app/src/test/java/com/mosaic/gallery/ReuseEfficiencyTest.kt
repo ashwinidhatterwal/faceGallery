@@ -49,6 +49,7 @@ class ReuseEfficiencyTest {
         ShadowContentResolver.registerProviderInternal("media",object:ContentProvider(){
             override fun onCreate()=true
             override fun query(uri:Uri,p:Array<out String>?,s:String?,a:Array<out String>?,o:String?):Cursor{
+                if("video" in uri.pathSegments)return android.database.MatrixCursor(p!!)
                 queries.incrementAndGet();started.countDown();check(release.await(5,TimeUnit.SECONDS))
                 return MatrixCursor(p!!).apply{addRow(arrayOf<Any>(1,"1.jpg",120000,120,400,300,"Camera",1000,"",1))}
             }

@@ -41,7 +41,8 @@ class PhotoGridAdapter(private val context: Context, private val click: (PhotoRe
     @android.annotation.SuppressLint("AppCompatCustomView")
     class Cell(context:Context):ImageView(context) {
         var albumKey:String?=null;var key:String?=null;var sourceKey:String?=null;var job:Future<*>?=null;var signal:CancellationSignal?=null;var revision=0
-        var checked=false;var selectable=false;var failed=false
+        var checked=false;var selectable=false;var failed=false;var video=false
+        private val playIcon=GalleryStyle.icon(context,"play",Color.WHITE)
         private val checkIcon=GalleryStyle.icon(context,"select",GalleryStyle.accent(context))
         private val emptyIcon=GalleryStyle.icon(context,"ratioSquare",Color.WHITE)
         private val paint=Paint(Paint.ANTI_ALIAS_FLAG)
@@ -49,6 +50,10 @@ class PhotoGridAdapter(private val context: Context, private val click: (PhotoRe
         override fun onDraw(canvas:Canvas){
             super.onDraw(canvas);val d=resources.displayMetrics.density
             if(failed){paint.color=GalleryStyle.muted(context);paint.textSize=11*d;paint.textAlign=Paint.Align.CENTER;canvas.drawText("No preview",width/2f,height/2f,paint)}
+            if(video){
+                paint.color=0x66000000;canvas.drawCircle(18*d,height-18*d,12*d,paint)
+                playIcon.setBounds((9*d).toInt(),(height-27*d).toInt(),(27*d).toInt(),(height-9*d).toInt());playIcon.draw(canvas)
+            }
             if(selectable){
                 if(checked){paint.color=0x44000000;canvas.drawRect(0f,0f,width.toFloat(),height.toFloat(),paint)}
                 val left=width-25*d;val top=7*d
@@ -113,10 +118,10 @@ class PhotoGridAdapter(private val context: Context, private val click: (PhotoRe
     override fun onBindViewHolder(holder:Holder,position:Int){
         val item=items[position]
         if(isHeader(position)){(holder.root as TextView).text=item.title;return}
-        val cell=holder.image!!;cell.albumKey=item.album;val photo=item.photo
+        val cell=holder.image!!;cell.albumKey=item.album;val photo=item.photo;cell.video=photo?.isVideo==true
         holder.title?.text=item.title;holder.count?.text=item.count.toString()
         cell.checked=photo?.uri.toString() in selected;cell.selectable=selectionMode&&item.album==null;cell.invalidate()
-        holder.root.contentDescription=if(item.album!=null)"${item.title}, ${item.count} photos" else photo?.displayName
+        holder.root.contentDescription=if(item.album!=null)"${item.title}, ${item.count} items" else photo?.displayName
         holder.root.setOnClickListener{if(item.album!=null)albumClick(item.album,holder.root)else photo?.let(click)}
         holder.root.setOnLongClickListener{if(item.album==null&&photo!=null){longClick(photo);true}else false}
         val key=photo?.uri?.toString()
@@ -129,10 +134,9 @@ class PhotoGridAdapter(private val context: Context, private val click: (PhotoRe
         val signal=CancellationSignal();cell.signal=signal;val token=cell.revision
         cell.job=workers.submit{
             val result=runCatching{
-                val bitmap=if(Build.VERSION.SDK_INT>=29)runCatching{context.contentResolver.loadThumbnail(photo.uri,Size(320,320),signal)}.getOrNull()else null
-                signal.throwIfCanceled();bitmap?:PhotoImages.decode(context,photo.uri,320)
+                GalleryMedia.thumbnail(context,photo,320,signal)
             }
-            cell.post{if(!closed&&cell.revision==token&&!signal.isCanceled){result.onSuccess{if(sourceKey==imageKey(photo) && AutoPeople.allowed(context)){cache.put(sourceKey!!,it);cell.setImageBitmap(it)}}.onFailure{cell.failed=true;cell.invalidate()}}}
+            cell.post{if(!closed&&cell.revision==token&&!signal.isCanceled){result.onSuccess{if(sourceKey==imageKey(photo) && MediaAccess.allowed(context)){cache.put(sourceKey!!,it);cell.setImageBitmap(it)}}.onFailure{cell.failed=true;cell.invalidate()}}}
         }
     }
     override fun onViewRecycled(holder:Holder){holder.image?.albumKey=null;holder.image?.cancel();workers.purge()}

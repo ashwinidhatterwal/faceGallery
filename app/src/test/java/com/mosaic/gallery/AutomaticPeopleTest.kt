@@ -72,7 +72,7 @@ class AutomaticPeopleTest {
     @Test @Config(sdk=[28]) fun savedIndexStartsRecognitionWhileGalleryValidationIsStillBlocked(){
         Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_EXTERNAL_STORAGE)
         FaceStore(app).use{it.summary()}
-        app.getSharedPreferences("startup-access",0).edit().putBoolean("contacts-asked",true).commit()
+        app.getSharedPreferences("startup-access",0).edit().putBoolean("contacts-asked",true).putBoolean("videos-asked",true).commit()
         PhotoIndex.save(app,GalleryRepository.Result(listOf(photo),0));GalleryData.invalidate()
         val entered=java.util.concurrent.CountDownLatch(1);val release=java.util.concurrent.CountDownLatch(1)
         org.robolectric.shadows.ShadowContentResolver.registerProviderInternal("media",object:ContentProvider(){

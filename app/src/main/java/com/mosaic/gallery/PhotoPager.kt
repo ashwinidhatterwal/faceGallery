@@ -9,6 +9,7 @@ import android.util.Size
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.PagerSnapHelper
 import androidx.recyclerview.widget.RecyclerView
@@ -27,6 +28,8 @@ class PhotoPager(context: Context) : RecyclerView(context) {
     private var photos = emptyList<PhotoRecord>()
     private var selected = 0
     private var running = false
+    private var videoControls=true
+    private val videoStates=linkedMapOf<String,GalleryVideoView.State>()
     private var closed = false
     var deferImageUpgrades=false
     var onDismissProgress:(Float)->Unit={}
@@ -51,7 +54,8 @@ class PhotoPager(context: Context) : RecyclerView(context) {
             extra[0] = width; extra[1] = width
         }
     }
-    private class Holder(val image: ZoomPhotoView) : ViewHolder(image) {
+    private class Holder(val image: ZoomPhotoView,val root:FrameLayout) : ViewHolder(root) {
+        var video:GalleryVideoView?=null
         var key = ""
         var job: Future<*>? = null
         var cancellation: CancellationSignal? = null
@@ -68,6 +72,7 @@ class PhotoPager(context: Context) : RecyclerView(context) {
         snap.attachToRecyclerView(this)
         addOnScrollListener(object : OnScrollListener() {
             override fun onScrollStateChanged(view: RecyclerView, state: Int) {
+                if(state!=SCROLL_STATE_IDLE)stopVideos()
                 if (state == SCROLL_STATE_IDLE) post {
                     // Let SnapHelper start any final correction before changing images/chrome.
                     if (closed || scrollState != SCROLL_STATE_IDLE) return@post
@@ -75,7 +80,7 @@ class PhotoPager(context: Context) : RecyclerView(context) {
                     if(!deferImageUpgrades && !dismissing)attached().forEach { holder ->
                         holder.pending?.let { holder.image.upgrade(it); holder.pending = null }
                     }
-                    reportImage()
+                    updateVideos();reportImage()
                 }
             }
         })
@@ -136,20 +141,20 @@ class PhotoPager(context: Context) : RecyclerView(context) {
         stopScroll(); attached().forEach { it.cancel() }; worker.purge()
         photos = list; selected = position; pages.notifyDataSetChanged()
         layout.scrollToPositionWithOffset(position, 0)
-        photos.getOrNull(selected)?.let(onSelected)
+        photos.getOrNull(selected)?.let(onSelected);post{updateVideos()}
     }
     fun goTo(uri: String, animate: Boolean = true) {
         val position = photos.indexOfFirst { it.uri.toString() == uri }
         if (position < 0 || position == selected) return
         if (animate && kotlin.math.abs(position - selected) == 1) smoothScrollToPosition(position)
-        else { stopScroll(); selected = position; layout.scrollToPositionWithOffset(position, 0); photos[position].let(onSelected); post { currentImage()?.resetToFit();reportImage() } }
+        else { stopScroll(); selected = position; layout.scrollToPositionWithOffset(position, 0); photos[position].let(onSelected); post { currentImage()?.resetToFit();updateVideos();reportImage() } }
     }
     fun step(delta: Int) { photos.getOrNull(selected + delta)?.let { goTo(it.uri.toString()) } }
     private fun updateSelected() {
         val view = snap.findSnapView(layout) ?: return
         val position = getChildAdapterPosition(view)
         if (position == NO_POSITION || position == selected) return
-        selected = position;currentImage()?.resetToFit();photos.getOrNull(position)?.let(onSelected)
+        stopVideos();selected = position;currentImage()?.resetToFit();photos.getOrNull(position)?.let(onSelected)
     }
     private fun reportImage() {
         val holder = findViewHolderForAdapterPosition(selected) as? Holder ?: return
@@ -167,14 +172,14 @@ class PhotoPager(context: Context) : RecyclerView(context) {
     }
     fun resume() {
         if (closed) return
-        running = true
+        running = true;post{updateVideos()}
         attached().filter { it.image.drawable == null }.forEach { holder ->
             val position = holder.bindingAdapterPosition
             photos.getOrNull(position)?.let { load(holder, it) }
         }
     }
     fun pause(retainImage: Boolean) {
-        running = false; stopScroll()
+        running = false; stopScroll();stopVideos()
         bound.forEach { it.cancel(); it.pending = null; if (!retainImage) it.image.show(null) }
         worker.queue.clear(); worker.purge()
         if (!retainImage) { recycledViewPool.clear(); cache.evictAll() }
@@ -191,11 +196,12 @@ class PhotoPager(context: Context) : RecyclerView(context) {
             // System previews are fast and preserve a visible page while the full image prepares.
             val preview = runCatching {
                 if (Build.VERSION.SDK_INT >= 29) context.contentResolver.loadThumbnail(photo.uri, Size(640, 640), cancellation)
-                else PhotoImages.decode(context, photo.uri, 720, 400_000L)
+                else GalleryMedia.thumbnail(context,photo,640,cancellation)
             }.getOrNull()
             if (cancellation.isCanceled || Thread.currentThread().isInterrupted) return@submit
             preview?.prepareToDraw()
             deliver(holder, key, cancellation, preview, false)
+            if(photo.isVideo){deliver(holder,key,cancellation,preview,true);return@submit}
             val full = runCatching {
                 PhotoImages.decode(context, photo.uri, 2048, (cache.maxSize().toLong() / 24).coerceIn(350_000L, 2_000_000L)).apply { prepareToDraw() }
             }.getOrNull()
@@ -216,24 +222,48 @@ class PhotoPager(context: Context) : RecyclerView(context) {
             if (scrollState == SCROLL_STATE_IDLE && holder.bindingAdapterPosition == selected) reportImage()
         }
     }
+    private fun rememberVideo(holder:Holder){
+        val state=holder.video?.state()?.takeIf{it.uri.isNotEmpty()}?:return
+        videoStates[state.uri]=state;if(videoStates.size>32)videoStates.remove(videoStates.keys.first())
+    }
+    private fun stopVideos(){bound.forEach{rememberVideo(it);it.video?.stopPlayback()}}
+    private fun updateVideos(){
+        bound.forEach{holder->
+            val isSelected=running && !closed && scrollState==SCROLL_STATE_IDLE && holder.bindingAdapterPosition==selected && photos.getOrNull(selected)?.isVideo==true && holder.itemView.parent===this
+            if(isSelected){holder.video?.activate();holder.video?.controlsVisible(videoControls)}else if(holder.video?.visibility==View.VISIBLE){rememberVideo(holder);holder.video?.stopPlayback()}
+        }
+    }
+    fun showVideoControls(visible:Boolean){videoControls=visible;bound.forEach{it.video?.controlsVisible(visible)}}
+    fun videoState():GalleryVideoView.State?{val holder=findViewHolderForAdapterPosition(selected) as? Holder;return if(photos.getOrNull(selected)?.isVideo==true)holder?.video?.state()else null}
+    fun restoreVideoState(state:GalleryVideoView.State){videoStates[state.uri]=state}
     private inner class Pages : Adapter<Holder>() {
         override fun getItemCount() = photos.size
-        override fun onCreateViewHolder(parent: ViewGroup, type: Int) = Holder(ZoomPhotoView(context).apply {
-            layoutParams = LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
-            onTap = { onPhotoTap() }
-        })
+        override fun onCreateViewHolder(parent:ViewGroup,type:Int):Holder {
+            val root=FrameLayout(context).apply{layoutParams=LayoutParams(-1,-1)}
+            val image=ZoomPhotoView(context).apply{onTap={onPhotoTap()}}
+            root.addView(image,FrameLayout.LayoutParams(-1,-1))
+            return Holder(image,root)
+        }
         override fun onBindViewHolder(holder: Holder, position: Int) {
             bound.add(holder)
             holder.image.contentDescription = photos[position].displayName
-            load(holder, photos[position])
+            val photo=photos[position]
+            if(photo.isVideo){
+                if(holder.video==null){holder.video=GalleryVideoView(context).apply{visibility=View.GONE;onTap={onPhotoTap()}};holder.root.addView(holder.video,FrameLayout.LayoutParams(-1,-1))}
+                holder.video?.bind(photo,videoStates[photo.uri.toString()])
+            }else holder.video?.stopPlayback()
+            load(holder,photo)
+            post{updateVideos()}
         }
         override fun onViewAttachedToWindow(holder: Holder) {
+            post{updateVideos()}
             if(scrollState==SCROLL_STATE_IDLE && !deferImageUpgrades) holder.pending?.let{holder.image.upgrade(it);holder.pending=null}
             if(running && holder.image.drawable==null && holder.pending==null && holder.job?.isDone!=false)
                 photos.getOrNull(holder.bindingAdapterPosition)?.let { load(holder,it) }
         }
+        override fun onViewDetachedFromWindow(holder:Holder){rememberVideo(holder);holder.video?.stopPlayback()}
         override fun onViewRecycled(holder: Holder) {
-            bound.remove(holder);holder.cancel(); holder.key = ""; holder.pending = null; holder.image.show(null); worker.purge()
+            rememberVideo(holder);holder.video?.stopPlayback();bound.remove(holder);holder.cancel(); holder.key = ""; holder.pending = null; holder.image.show(null); worker.purge()
         }
     }
 }

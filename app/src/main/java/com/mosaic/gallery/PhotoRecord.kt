@@ -12,5 +12,9 @@ data class PhotoRecord(
     val album: String = "",
     val sizeBytes:Long=-1,
     val path:String="",
-    val modifiedMillis:Long=0
-)
+    val modifiedMillis:Long=0,
+    val mimeType:String="image/*",
+    val durationMillis:Long=0
+) {
+    val isVideo:Boolean get()=mimeType.startsWith("video/") || "video" in uri.pathSegments
+}

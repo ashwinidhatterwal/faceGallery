@@ -24,10 +24,14 @@ class PeoplePolishUiTest {
         val controller=Robolectric.buildActivity(PeopleActivity::class.java).setup()
         try{
             val icon=find(controller.get().window.decorView)!!;icon.performClick()
-            val popup=ShadowPopupMenu.getLatestPopupMenu()
-            assertSame(icon,ReflectionHelpers.getField<View>(popup,"mAnchor"))
-            val titles=(0 until popup.menu.size()).map{popup.menu.getItem(it).title.toString()}
-            assertEquals(listOf("Needs review","Possible duplicates","Settings"),titles)
+            val dialog=org.robolectric.shadows.ShadowDialog.getLatestDialog()
+            fun labels(view:View):List<String> =(if(view is android.widget.TextView)listOf(view.text.toString())else emptyList())+if(view is ViewGroup)(0 until view.childCount).flatMap{labels(view.getChildAt(it))}else emptyList()
+            val titles=labels(dialog.window!!.decorView)
+            assertTrue(titles.containsAll(listOf("Identify people","Review similar people","Settings")))
+            assertFalse(titles.contains("Recognition tools"));assertFalse(titles.contains("Reset people"))
+            fun settings(view:View):View?{if(view.contentDescription=="Settings")return view;if(view is ViewGroup)for(i in 0 until view.childCount)settings(view.getChildAt(i))?.let{return it};return null}
+            settings(dialog.window!!.decorView)!!.performClick()
+            assertEquals(SettingsActivity::class.java.name,Shadows.shadowOf(controller.get()).nextStartedActivity.component!!.className)
         }finally{controller.pause().stop().destroy()}
     }
 }

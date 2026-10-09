@@ -80,7 +80,7 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
     fun pending(photos:List<PhotoRecord>,retryErrors:Boolean=true):List<PhotoRecord>{
         val completed=mutableMapOf<String,String>()
         readableDatabase.rawQuery("SELECT uri,fingerprint FROM photos WHERE status='done' AND model=?",arrayOf(MODEL)).use{while(it.moveToNext())completed[it.getString(0)]=it.getString(1)}
-        return photos.filter{completed[it.uri.toString()]!=fingerprint(it) && (retryErrors || retryAllowed(it.uri.toString(),-1,"detect",fingerprint(it)))}
+        return photos.filter{!it.isVideo && completed[it.uri.toString()]!=fingerprint(it) && (retryErrors || retryAllowed(it.uri.toString(),-1,"detect",fingerprint(it)))}
     }
     fun retain(photos:List<PhotoRecord>,removeMissing:Boolean=true){
         val db=writableDatabase;db.beginTransaction()

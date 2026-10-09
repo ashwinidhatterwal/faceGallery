@@ -59,7 +59,7 @@ class PeopleActivity:Activity(){
         root.addView(selectionBar)
         if(searchMode){val navigation=GalleryStyle.bar(this);listOf("Photos" to "photo","Albums" to "album","Search" to "search").forEach{(label,icon)->GalleryStyle.add(navigation,GalleryStyle.action(this,icon,label,selected=label=="Search"){if(label!="Search")startActivity(Intent(this,MainActivity::class.java).putExtra("browsePage",label).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))})};root.addView(navigation)}
         setEnterSharedElementCallback(object:SharedElementCallback(){override fun onMapSharedElements(names:MutableList<String>,elements:MutableMap<String,View>){val uri=returnUri?:return;elements.clear();fullPhotos.thumbnailView(uri)?.let{it.transitionName="mosaic-photo";elements["mosaic-photo"]=it}?:names.clear()}})
-        Ui.insets(this,root);setContentView(root);Ui.back(this){if(selected.isNotEmpty())clearSelection()else finish()}
+        Ui.insets(this,root);setContentView(root);if(intent.getBooleanExtra("recognitionOptions",false))root.post{advanced()};Ui.back(this){if(selected.isNotEmpty())clearSelection()else finish()}
     }
     override fun onResume(){super.onResume();active=true;FaceJobs.observe(observer);GalleryData.resumed(this);PeopleData.observe(dataObserver);AutoPeople.ensure(this);refresh()}
     private fun controls(state:FaceJobs.State=FaceJobs.state){selectionBar.visibility=if(selected.isNotEmpty() && !state.busy)View.VISIBLE else View.GONE;if(selected.isNotEmpty())titleView?.text="${selected.size} selected"}
@@ -139,31 +139,29 @@ class PeopleActivity:Activity(){
     private data class ViewData(val rows:List<GroupRules.Member>,val graph:Map<Long,Long>,val labels:Map<Long,String>,val relations:List<PeopleStore.Relation>,val photos:Map<String,PhotoRecord>,val suggestions:List<DuplicateReview.Suggestion>,val canUndo:Boolean,val policy:PeopleCalibration.Policy,val faces:FaceStore.Summary,val signatures:FaceStore.Signatures,val contacts:Map<Long,ContactNames.Contact>,val established:Set<Long>,val provisional:Set<Long>,val report:String)
     private data class Card(val key:String,val member:GroupRules.Member,val photo:PhotoRecord?,val title:String,val subtitle:String,val person:Long?,val second:GroupRules.Member?=null,val secondPhoto:PhotoRecord?=null,val other:Long?=null)
     private fun viewMenu(anchor:View){
-        PopupMenu(this,anchor,Gravity.END).apply{
-            if(folder){
-                menu.add("Name / contact").setOnMenuItemClickListener{renamePerson(groupId!!);true}
-                menu.add("Merge with person").setOnMenuItemClickListener{chooseMerge(groupId!!);true}
-                menu.add("Review faces").setOnMenuItemClickListener{startActivity(Intent(this@PeopleActivity,PeopleActivity::class.java).putExtra("person",groupId!!).putExtra("reviewFaces",true));true}
-                contactLinks[groupId]?.let{contact->menu.add("View contact").setOnMenuItemClickListener{ContactNames.open(this@PeopleActivity,contact);true}}
-            }else{
-                menu.add("Needs review").setOnMenuItemClickListener{startActivity(Intent(this@PeopleActivity,PeopleActivity::class.java).putExtra("review",true));true}
-                menu.add("Possible duplicates").setOnMenuItemClickListener{startActivity(Intent(this@PeopleActivity,PeopleActivity::class.java).putExtra("duplicates",true));true}
-            }
-            if(canUndo)menu.add("Undo correction").setOnMenuItemClickListener{mutate{it.undoCorrection()};true}
-            menu.add("Settings").setOnMenuItemClickListener{settings();true}
-        }.show()
+        val actions=mutableListOf<GalleryMenu.Action>()
+        if(folder){
+            actions+=GalleryMenu.Action("personAdd","Name or contact"){renamePerson(groupId!!)}
+            actions+=GalleryMenu.Action("personAdd","Combine with another person"){chooseMerge(groupId!!)}
+            actions+=GalleryMenu.Action("select","Correct faces"){startActivity(Intent(this,PeopleActivity::class.java).putExtra("person",groupId!!).putExtra("reviewFaces",true))}
+            contactLinks[groupId]?.let{contact->actions+=GalleryMenu.Action("info","View contact"){ContactNames.open(this,contact)}}
+        }else{
+            if(!review)actions+=GalleryMenu.Action("personAdd","Identify people"){startActivity(Intent(this,PeopleActivity::class.java).putExtra("review",true))}
+            if(!duplicates)actions+=GalleryMenu.Action("select","Review similar people"){startActivity(Intent(this,PeopleActivity::class.java).putExtra("duplicates",true))}
+        }
+        if(canUndo)actions+=GalleryMenu.Action("undo","Undo last correction"){mutate{it.undoCorrection()}}
+        actions+=GalleryMenu.Action("settings","Settings"){settings()}
+        GalleryMenu.show(this,"People options",actions)
     }
-    private fun settings(){
-        AlertDialog.Builder(this).setTitle("Settings").setItems(arrayOf("Advanced")){_,_->advanced()}.setNegativeButton("Close",null).show()
-    }
+    private fun settings(){startActivity(Intent(this,SettingsActivity::class.java))}
     private fun advanced(){
-        AlertDialog.Builder(this).setTitle("Advanced").setItems(arrayOf("Recognition status","Recognition tools","Export recognition report","Review joins","Reset grouping")){_,which->when(which){
-            0->AlertDialog.Builder(this).setTitle("Recognition status").setMessage(if(FaceJobs.state.busy)FaceJobs.state.message+"\n"+recognition else recognition).setPositiveButton("Close",null).show()
-            1->startActivity(Intent(this,FaceScanActivity::class.java))
-            2->exportReport()
-            3->showJoins()
-            4->AlertDialog.Builder(this).setTitle("Reset people?").setMessage("Remove saved names and face corrections?").setNegativeButton("Cancel",null).setPositiveButton("Reset"){_,_->mutate{it.reset()}}.show()
-        }}.setNegativeButton("Close",null).show()
+        GalleryMenu.show(this,"Recognition options",listOf(
+            GalleryMenu.Action("info","Recognition status"){GalleryStyle.dialog(this,GalleryStyle.panelRoot(this).apply{addView(GalleryStyle.text(this@PeopleActivity,"Recognition status",22f));addView(GalleryStyle.text(this@PeopleActivity,if(FaceJobs.state.busy)FaceJobs.state.message+"\n"+recognition else recognition,15f))})},
+            GalleryMenu.Action("adjust","Recognition tools"){startActivity(Intent(this,FaceScanActivity::class.java))},
+            GalleryMenu.Action("share","Export recognition report"){exportReport()},
+            GalleryMenu.Action("personAdd","Review combined people"){showJoins()},
+            GalleryMenu.Action("delete","Reset people"){AlertDialog.Builder(this).setTitle("Reset people?").setMessage("Remove saved names and face corrections?").setNegativeButton("Cancel",null).setPositiveButton("Reset"){_,_->mutate{it.reset()}}.show()}
+        ))
     }
     private fun exportReport(){
         worker.execute{

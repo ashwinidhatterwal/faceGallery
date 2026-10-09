@@ -31,14 +31,14 @@ object PeopleData {
     fun remove(listener:()->Unit){listeners-=listener}
     fun access(context:Context):String {
         fun granted(name:String)=context.checkSelfPermission(name)==PackageManager.PERMISSION_GRANTED
-        return "${context.filesDir}:"+listOf(if(Build.VERSION.SDK_INT>=33)Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE,Manifest.permission.READ_CONTACTS,Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED).joinToString{granted(it).toString()}
+        return "${context.filesDir}:"+listOf(if(Build.VERSION.SDK_INT>=33)Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE,Manifest.permission.READ_CONTACTS,Manifest.permission.READ_MEDIA_VIDEO,Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED).joinToString{granted(it).toString()}
     }
 }
 class PeopleCache<T> {
     private data class Entry<T>(val access:String,val revision:Long,val media:Long,val data:T)
     private var entry:Entry<T>?=null
-    @Synchronized fun get(context:Context):T?=entry?.takeIf{AutoPeople.allowed(context) && it.access==PeopleData.access(context) && it.revision==PeopleData.version && it.media==GalleryData.version}?.data
-    @Synchronized fun preview(context:Context):T?=entry?.takeIf{AutoPeople.allowed(context) && it.access==PeopleData.access(context) && it.media==GalleryData.version}?.data
+    @Synchronized fun get(context:Context):T?=entry?.takeIf{MediaAccess.allowed(context) && it.access==PeopleData.access(context) && it.revision==PeopleData.version && it.media==GalleryData.version}?.data
+    @Synchronized fun preview(context:Context):T?=entry?.takeIf{MediaAccess.allowed(context) && it.access==PeopleData.access(context) && it.media==GalleryData.version}?.data
     @Synchronized fun put(context:Context,revision:Long,data:T,media:Long=GalleryData.version){if(revision==PeopleData.version && media==GalleryData.version && AutoPeople.allowed(context))entry=Entry(PeopleData.access(context),revision,media,data)}
 }
 object GalleryData {
@@ -56,7 +56,7 @@ object GalleryData {
     fun load(context:Context,signal:CancellationSignal,force:Boolean=false):GalleryRepository.Result = synchronized(loadLock) {
         signal.throwIfCanceled()
         val token=synchronized(this){
-            if(!force && valid && AutoPeople.allowed(context) && access==PeopleData.access(context) && SystemClock.elapsedRealtime()-saved<120_000)result?.let{return it}
+            if(!force && valid && MediaAccess.allowed(context) && access==PeopleData.access(context) && SystemClock.elapsedRealtime()-saved<120_000)result?.let{return it}
             generation
         }
         val next=GalleryRepository(context).loadPhotos(signal);signal.throwIfCanceled()
@@ -64,7 +64,7 @@ object GalleryData {
         if(token==version)PhotoIndex.save(context,next)
         return next
     }
-    @Synchronized fun peek(context:Context):GalleryRepository.Result?=result?.takeIf{valid && AutoPeople.allowed(context) && access==PeopleData.access(context)}
+    @Synchronized fun peek(context:Context):GalleryRepository.Result?=result?.takeIf{valid && MediaAccess.allowed(context) && access==PeopleData.access(context)}
     // Selected-photo permissions can change while the app is away; never trust an old selection.
     fun resumed(context:Context){if(!PhotoIndex.allowed(context))invalidate()}
 }

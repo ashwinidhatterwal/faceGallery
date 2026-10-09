@@ -11,6 +11,7 @@ import android.widget.CheckBox
 
 /** Bundled policy is readable offline and never opens an embedded web session. */
 class PrivacyActivity:Activity() {
+    private var updating=false
     private lateinit var automatic:CheckBox
     private lateinit var contactMatching:CheckBox
     private lateinit var contactPermission:android.view.View
@@ -26,6 +27,7 @@ class PrivacyActivity:Activity() {
             text="Background recognition";setTextColor(GalleryStyle.textColor(context))
             isChecked=AutoPeople.enabled(this@PrivacyActivity)
             setOnCheckedChangeListener{_,enabled->
+                if(updating)return@setOnCheckedChangeListener
                 if(enabled){AutoPeople.resume(this@PrivacyActivity);AutoPeople.ensure(this@PrivacyActivity)}
                 else {
                     AutoPeople.pause(this@PrivacyActivity)
@@ -50,6 +52,6 @@ class PrivacyActivity:Activity() {
         root.addView(ScrollView(this).apply{addView(body)},LinearLayout.LayoutParams(-1,0,1f))
         Ui.insets(this,root);setContentView(root);Ui.back(this){finish()}
     }
-    override fun onResume(){super.onResume();automatic.isChecked=AutoPeople.enabled(this);contactMatching.isChecked=ContactRecognition.enabled(this);contactPermission.visibility=if(ContactRecognition.allowed(this))android.view.View.GONE else android.view.View.VISIBLE}
+    override fun onResume(){super.onResume();updating=true;automatic.isChecked=AutoPeople.enabled(this);contactMatching.isChecked=ContactRecognition.enabled(this);updating=false;contactPermission.visibility=if(ContactRecognition.allowed(this))android.view.View.GONE else android.view.View.VISIBLE}
     override fun onRequestPermissionsResult(code:Int,permissions:Array<out String>,results:IntArray){super.onRequestPermissionsResult(code,permissions,results);if(code==PeopleNames.PERMISSION){ContactRecognition.invalidate(this);AutoPeople.ensure(this,1_000);contactPermission.visibility=if(ContactRecognition.allowed(this))android.view.View.GONE else android.view.View.VISIBLE}}
 }

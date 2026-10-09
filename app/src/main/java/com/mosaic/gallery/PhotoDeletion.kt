@@ -38,7 +38,7 @@ class PhotoDeletion(private val activity: Activity, private val finished: (Int) 
         if (remaining.isNotEmpty() || working || uris.isEmpty()) return
         if (Build.VERSION.SDK_INT >= 30) {
             remaining = uris.distinct().toMutableList(); deleted = 0; advance()
-        } else AlertDialog.Builder(activity).setTitle("Delete ${uris.size} photo(s)?")
+        } else AlertDialog.Builder(activity).setTitle("Delete ${uris.size} item(s)?")
             .setMessage("These original files will be permanently deleted from this device.")
             .setNegativeButton("Cancel", null).setPositiveButton("Delete") { _, _ ->
                 remaining = uris.distinct().toMutableList(); deleted = 0
@@ -75,7 +75,7 @@ class PhotoDeletion(private val activity: Activity, private val finished: (Int) 
                             batch = 1
                             runCatching { activity.startIntentSenderForResult(error.userAction.actionIntent.intentSender,
                                 REQUEST, null, 0, 0, 0) }.onFailure { complete("Deletion was not permitted.") }
-                        } else complete("Could not delete this photo. It may no longer be accessible.")
+                        } else complete("Could not delete this item. It may no longer be accessible.")
                     })
                 }
             }
@@ -99,7 +99,7 @@ class PhotoDeletion(private val activity: Activity, private val finished: (Int) 
         val count = deleted
         if (Build.VERSION.SDK_INT <= 29) activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         remaining.clear(); batch = 0; deleted = 0
-        Toast.makeText(activity, message ?: "Deleted $count photo(s)", Toast.LENGTH_SHORT).show()
+        Toast.makeText(activity, message ?: "Deleted $count item(s)", Toast.LENGTH_SHORT).show()
         finished(count)
     }
     fun close() { worker.shutdownNow() }

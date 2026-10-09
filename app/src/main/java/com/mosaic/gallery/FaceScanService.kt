@@ -19,7 +19,7 @@ object FaceJobs {
 /** User-started local-file processing outlives screens. Explicit pause/finish releases CPU resources. */
 open class FaceScanService:Service(){
     companion object {
-        const val AUTO="automatic";const val EDIT_PAUSE="edit_pause";const val DETECT="detect";const val SIGNATURES="signatures";const val GROUP="group";const val PAUSE="pause"
+        const val AUTO="automatic";const val EDIT_PAUSE="edit_pause";const val DETECT="detect";const val SIGNATURES="signatures";const val GROUP="group";const val PAUSE="pause";const val PAUSE_DAY="pause_day"
         private const val CHANNEL="face_processing";private const val NOTIFICATION=41
         // Stop before Android's six-hour foreground-service allowance; never keep an unbounded lock.
         private const val SESSION_MS=5*60*60*1000L+55*60*1000L
@@ -38,9 +38,10 @@ open class FaceScanService:Service(){
     private val timeout=Runnable{pause("Paused at the session time limit. Saved progress will resume automatically.");stopForeground(STOP_FOREGROUND_REMOVE);releaseWake();stopSelf()}
     override fun onBind(intent:Intent?)=null
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int {
-        if(intent?.action in listOf(PAUSE,EDIT_PAUSE)){
+        if(intent?.action in listOf(PAUSE,PAUSE_DAY,EDIT_PAUSE)){
             if(intent?.action==PAUSE)AutoPeople.pause(this)
-            if(started)pause()else stopSelf()
+            if(intent?.action==PAUSE_DAY)AutoPeople.pauseForDay(this)
+            if(started)pause(if(intent?.action==PAUSE_DAY)"Paused for 24 hours. Saved progress will resume tomorrow."else"Paused. Completed results are saved.")else stopSelf()
             return START_NOT_STICKY
         }
         val requested=intent?.action
@@ -64,7 +65,7 @@ open class FaceScanService:Service(){
     }
     private var completeAccess=false
     protected open fun accessiblePhotos(signal:CancellationSignal):List<PhotoRecord> {
-        val result=GalleryData.load(this,signal,!automaticSession);completeAccess=PhotoIndex.allowed(this) && result.unreadableVolumes==0;return result.photos
+        val result=GalleryData.load(this,signal,!automaticSession);completeAccess=MediaAccess.fullPhotos(this) && result.unreadableVolumes==0;return result.photos.filterNot{it.isVideo}
     }
     private fun process(){
         var faces:FaceStore.Summary?=null;var signatures:FaceStore.Signatures?=null;var refinementDeferred=false
@@ -144,10 +145,10 @@ open class FaceScanService:Service(){
     }
     private fun notification(message:String,count:Int,total:Int):Notification {
         val open=PendingIntent.getActivity(this,0,Intent(this,FaceScanActivity::class.java),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val pause=PendingIntent.getService(this,1,Intent(this,FaceScanService::class.java).setAction(PAUSE),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+        val pause=PendingIntent.getService(this,1,Intent(this,FaceScanService::class.java).setAction(PAUSE_DAY),PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         return Notification.Builder(this,CHANNEL).setSmallIcon(R.drawable.ic_photo).setContentTitle(if(automaticSession)"Recognising people"else when(mode){DETECT->"Scanning faces";GROUP->"Grouping people";else->"Building face signatures"})
             .setContentText(if(automaticSession)"Working quietly in the background"else message).setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true).setCategory(Notification.CATEGORY_PROGRESS)
-            .apply{if(!automaticSession)setProgress(total,count,total==0)}.addAction(Notification.Action.Builder(null,"Pause",pause).build()).build()
+            .apply{if(!automaticSession)setProgress(total,count,total==0)}.addAction(Notification.Action.Builder(null,"Pause for 24 hours",pause).build()).build()
     }
     private fun finishJob(message:String,faces:FaceStore.Summary?=null,signatures:FaceStore.Signatures?=null){
         continuing=false;main.removeCallbacks(timeout);releaseWake()

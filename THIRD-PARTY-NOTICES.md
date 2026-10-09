@@ -15,3 +15,7 @@ Bundled com.google.mlkit:face-detection:16.1.7 and its transitive runtime depend
   notice are shipped as app assets. Source provenance/checksums are in PHASE3.md and tools/.
 - Google AI Edge LiteRT 1.4.1, Apache 2.0. Full runtime license shipped as an asset.
 - No other face-recognition weights (including research-only InsightFace packs) are bundled.
+
+## Local video playback
+
+AndroidX Media3 ExoPlayer and UI 1.11.1, Apache 2.0, from https://github.com/androidx/media . The full Apache 2.0 license is included in app/src/main/assets/LITERT-LICENSE.txt. Playback uses local media URIs; network permissions remain removed. The new launcher artwork is native vector artwork created for Mosaic Gallery.

@@ -1,4 +1,4 @@
-## Contact portrait matching — 0.8.2-background
+## Contact portrait matching — 0.9.0-media
 
 Built from the current faceGallery repository, commit 871dd672cae1ee1ca5bd1b60758dfdafba52f628.
 
@@ -54,7 +54,7 @@ The APK and AAB are signed using **the same key you provided**. On every manual 
 
 - Android Gradle Plugin 8.13.2, Kotlin 2.3.0, Gradle 8.13 and JDK 17.
 - Android API 36 and SDK Build Tools 35.0.0; minimum supported Android API 28 (Android 9).
-- App ID `com.mosaic.gallery`; version code 37; version name `0.8.2-background`.
+- App ID `com.mosaic.gallery`; version code 37; version name `0.9.0-media`.
 - `./gradlew :app:assembleDebug` makes a local debug APK, which Android signs with the developer machine's local debug key, not your Play upload key.
 
 ## Important release notes
@@ -69,3 +69,13 @@ The APK and AAB are signed using **the same key you provided**. On every manual 
 On first opening, Android asks for photo/storage access and optional contacts access. Existing installs ask for missing contacts access once. Declining contacts keeps the gallery usable; enable it later in Settings → Privacy. On Android 13+, access is limited to images, not all files. Android 14+ can grant selected photos only.
 
 Automatic recognition, grouping and contact portrait matching use saved progress and quiet persisted jobs after closing the screen. Work pauses below 20% battery (even while charging), at battery temperature 40°C or higher, at Android thermal status MODERATE or higher, or in battery saver. The periodic fallback no longer requires device idle; existing idle-only jobs are migrated. Warm/low-power jobs retry after 15 minutes without losing completed work. Android controls job timing; force stop or restricted battery settings can prevent execution until the app is reopened or restrictions are removed. No background progress notification is added.
+
+## Photos and videos (0.9.0)
+
+The existing gallery and albums now include local videos. A small play badge distinguishes their thumbnails. The viewer autoplays the selected video and provides themed play/pause, timestamps and a draggable seek bar. Swipe between photos and videos normally; only the visible video owns a decoder. Leaving the viewer releases video/audio resources and keeps the current position for returning to that viewer. Supported formats/codecs depend on the device. Photo editing and face recognition remain photo-only.
+
+Android 13+ requests READ_MEDIA_IMAGES and READ_MEDIA_VIDEO. Android 14+ also supports selected media. An existing install asks once for missing video access; declined video access leaves photo browsing available. Cached metadata is scoped to the actual permissions. Video-only access supports browsing without enabling photo recognition.
+
+Gallery, people, viewer and selection menus use the same themed action panel. Settings opens a dedicated screen for recognition/contacts, people management, tools, permissions and about information. The launcher icon is adaptive, with a themed monochrome variant; editable SVG geometry and a PNG preview are in design/.
+
+The notification's Pause for 24 hours action schedules a persisted next-day wake-up. Restarting the phone restores the remaining delay. Once it expires, recognition resumes from saved work under the existing safety gates. Turning off Background recognition in Settings remains a permanent pause and cancels that timer. Android's scheduling and battery restrictions can delay the actual retry.

@@ -10,36 +10,57 @@ import java.util.concurrent.Executors
 
 /** Small persisted jobs, with a content trigger and periodic discovery fallback. No foreground notification. */
 object AutoPeople {
-    const val BATCH=71;const val DISCOVER=72;const val WATCH=73
+    const val BATCH=71;const val DISCOVER=72;const val WATCH=73;const val RESUME=74
     private var retained:List<PhotoRecord>?=null;private var retainedAccess="";private var retainedComplete=false
     fun retainIfChanged(c:Context,store:FaceStore,photos:List<PhotoRecord>,complete:Boolean){
         if(retained!=photos || retainedAccess!=PeopleData.access(c) || retainedComplete!=complete){store.retain(photos,complete);retained=photos;retainedAccess=PeopleData.access(c);retainedComplete=complete}
     }
     private fun prefs(c:Context)=c.getSharedPreferences("automatic-people",0)
     fun allowed(c:Context)=c.checkSelfPermission(if(Build.VERSION.SDK_INT>=33)Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE)==PackageManager.PERMISSION_GRANTED || (Build.VERSION.SDK_INT>=34 && c.checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)==PackageManager.PERMISSION_GRANTED)
-    fun enabled(c:Context)=!prefs(c).getBoolean("paused",false)
-    fun pause(c:Context){
-        prefs(c).edit().putBoolean("paused",true).apply()
+    fun pauseUntil(c:Context)=prefs(c).getLong("pause-until",0)
+    @Synchronized fun enabled(c:Context,now:Long=System.currentTimeMillis()):Boolean {
+        val p=prefs(c);if(p.getBoolean("paused",false))return false
+        val until=p.getLong("pause-until",0)
+        if(until>now)return false
+        if(until!=0L)p.edit().remove("pause-until").apply()
+        return true
+    }
+    @Synchronized fun pauseForDay(c:Context){
+        if(prefs(c).getBoolean("paused",false))return
+        prefs(c).edit().putLong("pause-until",System.currentTimeMillis()+24*60*60_000L).apply()
         val scheduler=c.getSystemService(JobScheduler::class.java)
-        listOf(BATCH,DISCOVER,WATCH).forEach(scheduler::cancel)
+        listOf(BATCH,DISCOVER,WATCH).forEach(scheduler::cancel);FaceWork.pauseForEdit();scheduleResume(c)
+    }
+    @Synchronized private fun scheduleResume(c:Context){
+        val until=pauseUntil(c);if(until<=0 || prefs(c).getBoolean("paused",false))return
+        val scheduler=c.getSystemService(JobScheduler::class.java)
+        if(scheduler.getPendingJob(RESUME)?.extras?.getLong("until")==until)return
+        runCatching{scheduler.schedule(JobInfo.Builder(RESUME,ComponentName(c,AutoPeopleJob::class.java)).setMinimumLatency((until-System.currentTimeMillis()).coerceAtLeast(0)).setPersisted(true).setExtras(PersistableBundle().apply{putLong("until",until)}).build())}
+    }
+    @Synchronized fun pause(c:Context){
+        prefs(c).edit().putBoolean("paused",true).remove("pause-until").apply()
+        val scheduler=c.getSystemService(JobScheduler::class.java)
+        listOf(BATCH,DISCOVER,WATCH,RESUME).forEach(scheduler::cancel)
         FaceWork.pauseForEdit()
     }
-    fun resume(c:Context){prefs(c).edit().putBoolean("paused",false).apply()}
+    @Synchronized fun resume(c:Context){prefs(c).edit().putBoolean("paused",false).remove("pause-until").apply();c.getSystemService(JobScheduler::class.java).cancel(RESUME)}
     fun canStartVisible(c:Context)=allowed(c) && enabled(c) && !FaceJobs.state.busy && SystemClock.elapsedRealtime()>=FaceWork.editingUntil
     /** Read on a worker; completed photos/signatures are never submitted for inference again. */
     fun hasPending(c:Context,photos:List<PhotoRecord>):Boolean {
-        if(photos.isEmpty())return ContactRecognition.needsWork(c)
+        val images=photos.filterNot{it.isVideo}
+        if(images.isEmpty())return ContactRecognition.needsWork(c)
         return FaceStore(c).use{store->
-            store.pending(photos,false).isNotEmpty() || store.pendingSignatures(photos,false).isNotEmpty() ||
-                (needsGrouping(c) && store.signatureSummary().ready>0) || SignatureRefinement.candidates(store,photos,1).isNotEmpty() || ContactRecognition.needsWork(c)
+            store.pending(images,false).isNotEmpty() || store.pendingSignatures(images,false).isNotEmpty() ||
+                (needsGrouping(c) && store.signatureSummary().ready>0) || SignatureRefinement.candidates(store,images,1).isNotEmpty() || ContactRecognition.needsWork(c)
         }
     }
     @Synchronized fun dirty(c:Context){val p=prefs(c);p.edit().putLong("revision",p.getLong("revision",0)+1).apply()}
     fun revision(c:Context)=prefs(c).getLong("revision",0)
     fun needsGrouping(c:Context)=revision(c)!=prefs(c).getLong("grouped",-1) || prefs(c).getInt("grouping-policy",0)!=2
     @Synchronized fun grouped(c:Context,value:Long){if(revision(c)==value)prefs(c).edit().putLong("grouped",value).putInt("grouping-policy",2).apply()}
-    fun ensure(context:Context,delay:Long=15_000){
-        val c=context.applicationContext;if(!allowed(c) || !enabled(c))return
+    @Synchronized fun ensure(context:Context,delay:Long=15_000){
+        val c=context.applicationContext;if(!enabled(c)){scheduleResume(c);return};if(!allowed(c))return
+        c.getSystemService(JobScheduler::class.java).cancel(RESUME)
         runCatching{
             val scheduler=c.getSystemService(JobScheduler::class.java);val service=ComponentName(c,AutoPeopleJob::class.java)
             if(scheduler.getPendingJob(DISCOVER)==null || scheduler.getPendingJob(DISCOVER)?.isRequireDeviceIdle==true)scheduler.schedule(JobInfo.Builder(DISCOVER,service).setPeriodic(2*60*60_000L).setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).setPersisted(true).build())
@@ -48,8 +69,8 @@ object AutoPeople {
             request(c,delay)
         }
     }
-    fun watch(c:Context){if(!allowed(c) || !enabled(c))return;runCatching{val job=JobInfo.Builder(WATCH,ComponentName(c,AutoPeopleJob::class.java)).addTriggerContentUri(JobInfo.TriggerContentUri(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,JobInfo.TriggerContentUri.FLAG_NOTIFY_FOR_DESCENDANTS));if(ContactRecognition.available(c))job.addTriggerContentUri(JobInfo.TriggerContentUri(android.provider.ContactsContract.Contacts.CONTENT_URI,JobInfo.TriggerContentUri.FLAG_NOTIFY_FOR_DESCENDANTS));c.getSystemService(JobScheduler::class.java).schedule(job.setTriggerContentUpdateDelay(5_000).setTriggerContentMaxDelay(30_000).setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).build())}}
-    fun request(c:Context,delay:Long=60_000,replaceFinished:Boolean=false){
+    @Synchronized fun watch(c:Context){if(!allowed(c) || !enabled(c))return;runCatching{val job=JobInfo.Builder(WATCH,ComponentName(c,AutoPeopleJob::class.java)).addTriggerContentUri(JobInfo.TriggerContentUri(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,JobInfo.TriggerContentUri.FLAG_NOTIFY_FOR_DESCENDANTS));if(ContactRecognition.available(c))job.addTriggerContentUri(JobInfo.TriggerContentUri(android.provider.ContactsContract.Contacts.CONTENT_URI,JobInfo.TriggerContentUri.FLAG_NOTIFY_FOR_DESCENDANTS));c.getSystemService(JobScheduler::class.java).schedule(job.setTriggerContentUpdateDelay(5_000).setTriggerContentMaxDelay(30_000).setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).build())}}
+    @Synchronized fun request(c:Context,delay:Long=60_000,replaceFinished:Boolean=false){
         if(!allowed(c) || !enabled(c) || FaceWork.automatic)return
         runCatching{val s=c.getSystemService(JobScheduler::class.java);if(replaceFinished || s.getPendingJob(BATCH)==null)s.schedule(JobInfo.Builder(BATCH,ComponentName(c,AutoPeopleJob::class.java)).setMinimumLatency(delay).setRequiresBatteryNotLow(true).setRequiresStorageNotLow(true).setBackoffCriteria(5*60_000L,JobInfo.BACKOFF_POLICY_EXPONENTIAL).setPersisted(true).build())}
     }
@@ -85,6 +106,7 @@ open class AutoPeopleJob:JobService() {
         SignatureEngine(applicationContext,1).use{engine->engine.refine(store,photo,keys,keepGoing,::canCommit)}
     }
     override fun onStartJob(params:JobParameters):Boolean {
+        if(params.jobId==AutoPeople.RESUME){getSystemService(JobScheduler::class.java).cancel(AutoPeople.RESUME);AutoPeople.ensure(this,0);return false}
         if(params.jobId==AutoPeople.WATCH){
             val authorities=params.triggeredContentAuthorities.orEmpty()
             if(authorities.isEmpty() || MediaStore.AUTHORITY in authorities)GalleryData.invalidate()
@@ -98,10 +120,10 @@ open class AutoPeopleJob:JobService() {
                 val heat=FaceHeat(this);val deadline=SystemClock.elapsedRealtime()+20_000
                 fun keepGoing():Boolean {val okay=heat.canRun();if(!okay)cool=true;return !run.stopped && !FaceWork.stopAutomatic && !FaceJobs.state.busy && AutoPeople.allowed(this) && AutoPeople.enabled(this) && SystemClock.elapsedRealtime()<deadline && okay}
                 if(!keepGoing()){more=true;return@write}
-                val result=photos(run.signal);val photos=result.photos
+                val result=photos(run.signal);val photos=result.photos.filterNot{it.isVideo}
                 FaceStore(this).use{store->
                     // A disconnected volume or selected-only access must not erase confirmed identities.
-                    val complete=PhotoIndex.allowed(this) && result.unreadableVolumes==0
+                    val complete=MediaAccess.fullPhotos(this) && result.unreadableVolumes==0
                     AutoPeople.retainIfChanged(this,store,photos,complete)
                     val detectionDeadline=minOf(deadline-10_000,SystemClock.elapsedRealtime()+8_000)
                     val pending=store.pending(photos,false).take(8)

@@ -97,8 +97,8 @@ class MainActivity : Activity() {
             if (selecting) toggle(photo) else {
                 returnUri=null
                 val intent=Intent(this,PhotoActivity::class.java).setData(photo.uri)
-                    .putExtra("name",photo.displayName).putExtra("album",album)
-                val thumbnail=adapter.thumbnailView(photo.uri.toString())
+                    .putExtra("name",photo.displayName).putExtra("album",album).putExtra("mimeType",photo.mimeType)
+                val thumbnail=if(photo.isVideo)null else adapter.thumbnailView(photo.uri.toString())
                 if(thumbnail!=null){thumbnail.transitionName="mosaic-photo";intent.putExtra("transition",true)
                     startActivity(intent,android.app.ActivityOptions.makeSceneTransitionAnimation(this,thumbnail,"mosaic-photo").toBundle())
                 }else startActivity(intent)
@@ -164,12 +164,12 @@ class MainActivity : Activity() {
         selectionBar=GalleryStyle.bar(this)
         GalleryStyle.add(selectionBar,GalleryStyle.action(this,"share","Share"){shareSelected()})
         GalleryStyle.add(selectionBar,GalleryStyle.action(this,"delete","Delete"){deletion.delete(allPhotos.filter{it.uri.toString() in selected}.map{it.uri})})
-        GalleryStyle.add(selectionBar,GalleryStyle.action(this,"more","More"){
-            AlertDialog.Builder(this).setItems(if(selected.size==1)arrayOf("Photo details","Select all","Clear selection")else arrayOf("Select all","Clear selection")){_,which->
-                val single=selected.size==1
-                if(single && which==0){allPhotos.firstOrNull{it.uri.toString() in selected}?.let{PhotoDetails.show(this,it)}}
-                else{if(which==if(single)1 else 0)selected.addAll(visible.map{it.uri.toString()})else selected.clear();updateSelection()}
-            }.show()
+        GalleryStyle.add(selectionBar,GalleryStyle.action(this,"more","Selection options"){
+            val actions=mutableListOf<GalleryMenu.Action>()
+            if(selected.size==1)actions+=GalleryMenu.Action("info","Details"){allPhotos.firstOrNull{it.uri.toString() in selected}?.let{PhotoDetails.show(this,it)}}
+            actions+=GalleryMenu.Action("select","Select all"){selected.addAll(visible.map{it.uri.toString()});updateSelection()}
+            actions+=GalleryMenu.Action("close","Clear selection"){selected.clear();updateSelection()}
+            GalleryMenu.show(this,"Selection",actions)
         });root.addView(selectionBar)
         navigation=GalleryStyle.bar(this);root.addView(navigation)
         Ui.insets(this,root);updateSelection();return root
@@ -225,15 +225,11 @@ class MainActivity : Activity() {
         updateSelection()
     }
     private fun overflow(anchor:View){
-        PopupMenu(this,anchor).apply{
-            menu.add("Search people and dates").setOnMenuItemClickListener{startActivity(Intent(this@MainActivity,PeopleSearchActivity::class.java));true}
-            menu.add("People").setOnMenuItemClickListener{startActivity(Intent(this@MainActivity,PeopleActivity::class.java));true}
-            menu.add("Settings").setOnMenuItemClickListener{AlertDialog.Builder(this@MainActivity).setTitle("Settings").setItems(arrayOf("Privacy","Advanced")){_,which->startActivity(Intent(this@MainActivity,if(which==0)PrivacyActivity::class.java else FaceScanActivity::class.java))}.setNegativeButton("Close",null).show();true}
-            menu.add("Refresh").setOnMenuItemClickListener{adapter.retryThumbnails();refreshGallery();true}
-            menu.add("Photo permissions").setOnMenuItemClickListener{requestPhotoAccess();true}
-            menu.add("About photo access").setOnMenuItemClickListener{AlertDialog.Builder(this@MainActivity).setTitle("On-device photos")
-                .setMessage("Shows accessible images indexed by Android, including connected shared storage. Cloud-only, private and hidden/unindexed photos are not included.").setPositiveButton("Close",null).show();true}
-        }.show()
+        GalleryMenu.show(this,if(folderOpen)album.ifBlank{"Library"}else page,listOf(
+            GalleryMenu.Action("personAdd","People"){startActivity(Intent(this,PeopleActivity::class.java))},
+            GalleryMenu.Action("redo","Refresh library"){adapter.retryThumbnails();refreshGallery()},
+            GalleryMenu.Action("settings","Settings"){startActivity(Intent(this,SettingsActivity::class.java))}
+        ))
     }
     private fun toggle(photo: PhotoRecord) {
         val key = photo.uri.toString(); if (!selected.add(key)) selected.remove(key); updateSelection()
@@ -271,7 +267,7 @@ class MainActivity : Activity() {
         adapter.submitList(visible,clearCache);adapter.setSelection(selected.toSet())
         if(visible.isNotEmpty())grid.scrollToPosition(scrollPosition.coerceIn(0,adapter.itemCount-1))
         message.visibility=if(visible.isEmpty()&&page!="Albums")View.VISIBLE else View.GONE
-        message.text="No accessible photos"
+        message.text="No accessible photos or videos"
         updateCount()
     }
     private fun startAutomaticRecognition(){
@@ -312,12 +308,12 @@ class MainActivity : Activity() {
         if (access == Access.NONE) { finish(); return }
         if (!observed) observed = runCatching { contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer) }.isSuccess
         if (access == Access.PARTIAL) {
-            action.text = "Change selected photos"; action.setOnClickListener { requestPhotoAccess() }; action.visibility = View.VISIBLE
+            action.text = "Change selected media"; action.setOnClickListener { requestPhotoAccess() }; action.visibility = View.VISIBLE
         }
         if(loadedAccess!=null && loadedAccess!=access){
             allPhotos=emptyList();visible=emptyList();selected.clear();loadedAccess=null;adapter.submitList(emptyList())
         }
-        if(loadedAccess==null){progress.visibility = View.VISIBLE; status.text = "Loading local photos…"}
+        if(loadedAccess==null){progress.visibility = View.VISIBLE; status.text = "Loading local media…"}
         val query = CancellationSignal(); signal = query
         io.execute {
             // Publish the saved index first; validation continues on this same worker.
@@ -345,7 +341,7 @@ class MainActivity : Activity() {
                     if(changed || grid.layoutManager==null){render();grid.layoutManager?.onRestoreInstanceState(savedLayout)}else updateCount()
                 }.onFailure {
                     if(loadedAccess!=access){allPhotos = emptyList(); visible = emptyList();adapter.submitList(emptyList())}
-                    status.text = "Could not load photos"; message.text = "Check photo permissions and connected storage, then retry."
+                    status.text = "Could not load media"; message.text = "Check photo permissions and connected storage, then retry."
                     message.visibility = View.VISIBLE; action.text = "Retry"; action.setOnClickListener { refreshGallery() }; action.visibility = View.VISIBLE
                 }
             }
@@ -357,14 +353,14 @@ class MainActivity : Activity() {
         // Huge lists can exceed Android's intent transaction limit; ask for a smaller selection.
         if (uris.size > 200) { Toast.makeText(this, "Share up to 200 photos at a time.", Toast.LENGTH_LONG).show(); return }
         runCatching { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-            type = "image/*"; putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
+            type = when{allPhotos.filter{it.uri.toString() in selected}.all{it.isVideo}->"video/*";allPhotos.filter{it.uri.toString() in selected}.none{it.isVideo}->"image/*";else->"*/*"}; putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
             clipData = ClipData.newUri(contentResolver, "Photos", uris.first()).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }, "Share selected photos")) }.onFailure { Toast.makeText(this, "Could not share the selected photos.", Toast.LENGTH_SHORT).show() }
     }
     private fun readPermission() = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
     private fun currentAccess() = when {
-        checkSelfPermission(readPermission()) == PackageManager.PERMISSION_GRANTED -> Access.FULL
+        MediaAccess.fullPhotos(this) || MediaAccess.fullVideos(this) -> Access.FULL
         Build.VERSION.SDK_INT >= 34 && checkSelfPermission(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) == PackageManager.PERMISSION_GRANTED -> Access.PARTIAL
         else -> Access.NONE
     }
@@ -373,13 +369,17 @@ class MainActivity : Activity() {
         if(permissionInFlight)return currentAccess()==Access.NONE
         val prefs=getSharedPreferences("startup-access",0)
         val contacts=ContactRecognition.enabled(this) && !ContactRecognition.allowed(this) && !prefs.getBoolean("contacts-asked",false)
-        if(currentAccess()!=Access.NONE && !contacts)return false
+        val videos=Build.VERSION.SDK_INT>=33 && !MediaAccess.fullVideos(this) && !prefs.getBoolean("videos-asked",false) && !MediaAccess.selected(this)
+        if(currentAccess()!=Access.NONE && !contacts && !videos)return false
         val permissions=mutableListOf<String>()
         if(currentAccess()==Access.NONE){
             galleryRoot.visibility=View.INVISIBLE
-            permissions.add(readPermission())
+            permissions.addAll(MediaAccess.permissions())
+        }else if(videos){
+            permissions.add(Manifest.permission.READ_MEDIA_VIDEO)
             if(Build.VERSION.SDK_INT>=34)permissions.add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
         }
+        if(Manifest.permission.READ_MEDIA_VIDEO in permissions)prefs.edit().putBoolean("videos-asked",true).apply()
         if(contacts){permissions.add(Manifest.permission.READ_CONTACTS);prefs.edit().putBoolean("contacts-asked",true).apply()}
         permissionInFlight=true
         requestPermissions(permissions.toTypedArray(),1001)
@@ -388,8 +388,7 @@ class MainActivity : Activity() {
     private fun requestPhotoAccess() {
         if(permissionInFlight)return
         permissionInFlight=true
-        requestPermissions(if (Build.VERSION.SDK_INT >= 34) arrayOf(Manifest.permission.READ_MEDIA_IMAGES,
-            Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED) else arrayOf(readPermission()), 1001)
+        requestPermissions(MediaAccess.permissions(),1001)
     }
     override fun onRequestPermissionsResult(code: Int, permissions: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(code, permissions, results)

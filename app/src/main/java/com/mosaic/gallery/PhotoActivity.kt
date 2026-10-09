@@ -27,6 +27,7 @@ class PhotoActivity : Activity() {
     private lateinit var top: LinearLayout
     private lateinit var bottom: LinearLayout
     private lateinit var favorite: LinearLayout
+    private lateinit var editAction:LinearLayout
     private lateinit var film: PhotoRail
     private lateinit var filmAdapter: FilmstripAdapter
     private lateinit var chrome:LinearLayout
@@ -38,7 +39,7 @@ class PhotoActivity : Activity() {
     private var peopleFraction=0f;private var peopleAnimator:android.animation.ValueAnimator?=null
     private var viewerRoot:FrameLayout?=null
     private fun showPeople(){current?.let{record->
-        if(peopleSheet.isShowing)return
+        if(record.isVideo || peopleSheet.isShowing)return
         controlsVisible=true;chrome.visibility=View.VISIBLE;chrome.alpha=1f;viewerBars(true)
         peopleSheet.show(record,(pager.currentImage()?.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap)
         animatePeople(true)
@@ -85,7 +86,7 @@ class PhotoActivity : Activity() {
         }
         window.sharedElementReturnTransition=android.transition.TransitionSet().apply{addTransition(android.transition.ChangeBounds());addTransition(android.transition.ChangeTransform());addTransition(android.transition.ChangeImageTransform());duration=250;interpolator=android.view.animation.DecelerateInterpolator()}
         val uri = state?.getString("uri")?.let(Uri::parse) ?: intent.data ?: run { finish(); return }
-        current = PhotoRecord(0, uri, intent.getStringExtra("name").orEmpty(), 0, 0, 0)
+        current = PhotoRecord(0, uri, intent.getStringExtra("name").orEmpty(), 0, 0, 0,mimeType=state?.getString("mimeType")?:intent.getStringExtra("mimeType")?:"image/*")
         album = intent.getStringExtra("album").orEmpty()
         deletion = PhotoDeletion(this) { count -> if (count > 0) finish() }
         deletion.restore(state)
@@ -97,7 +98,7 @@ class PhotoActivity : Activity() {
         title=GalleryStyle.text(this,"",21f).apply{maxLines=2;setPadding(12,0,0,0)}
         top.addView(title,LinearLayout.LayoutParams(0,-2,1f))
         favorite=GalleryStyle.action(this,"heart","Favorite",compact=true){toggleFavorite()};top.addView(favorite)
-        top.addView(GalleryStyle.action(this,"info","Details",compact=true){info()});chrome.addView(top)
+        top.addView(GalleryStyle.action(this,"more","Media options",compact=true){mediaMenu()});chrome.addView(top)
         status=GalleryStyle.text(this,"",12f,GalleryStyle.muted(this@PhotoActivity)).apply{setPadding(24,0,24,4)};chrome.addView(status)
         pager=PhotoPager(this).apply {
             deferImageUpgrades=state==null && intent.getBooleanExtra("transition",false)
@@ -105,9 +106,10 @@ class PhotoActivity : Activity() {
             onSwipeUp={showPeople()}
             onDismissProgress={progress->chrome.animate().cancel();chrome.alpha=if(controlsVisible)1f-progress.coerceAtMost(0.95f)else 0f}
             onDismissReleased={closePhoto()}
-            onSelected={photo->if(peopleSheet.isShowing)peopleSheet.dismiss();current=photo;peopleSheet.prepare(photo);status.text="";updateTitle();updateNavigation()}
-            onImageReady={available->peopleSheet.updatePreview((pager.currentImage()?.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap);current?.let{peopleSheet.prepare(it)};status.text=if(available)""else"Photo unavailable";startPostponedEnterTransition()}
+            onSelected={photo->if(peopleSheet.isShowing)peopleSheet.dismiss();current=photo;if(!photo.isVideo)peopleSheet.prepare(photo);editAction.visibility=if(photo.isVideo)View.GONE else View.VISIBLE;status.text="";updateTitle();updateNavigation()}
+            onImageReady={available->peopleSheet.updatePreview((pager.currentImage()?.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap);current?.takeIf{!it.isVideo}?.let{peopleSheet.prepare(it)};status.text=if(available || current?.isVideo==true)""else"Media unavailable";startPostponedEnterTransition()}
         }
+        state?.getString("videoUri")?.let{pager.restoreVideoState(GalleryVideoView.State(it,state.getLong("videoPosition"),state.getBoolean("videoPlaying",true)))}
         root.addView(pager,FrameLayout.LayoutParams(-1,-1))
         chrome.addView(Space(this),LinearLayout.LayoutParams(-1,0,1f))
         filmAdapter=FilmstripAdapter(this){photo->pager.goTo(photo.uri.toString())}
@@ -117,9 +119,8 @@ class PhotoActivity : Activity() {
         };chrome.addView(film,LinearLayout.LayoutParams(-1,GalleryStyle.dp(this,50)))
         bottom=GalleryStyle.bar(this).apply{setBackgroundColor(GalleryStyle.canvas(this@PhotoActivity))}
         GalleryStyle.add(bottom,GalleryStyle.action(this,"share","Share"){share()})
-        GalleryStyle.add(bottom,GalleryStyle.action(this,"edit","Edit"){current?.let{startActivity(Intent(this,PhotoEditorActivity::class.java).setData(it.uri).putExtra("name",it.displayName))}})
+        editAction=GalleryStyle.action(this,"edit","Edit"){current?.takeIf{!it.isVideo}?.let{startActivity(Intent(this,PhotoEditorActivity::class.java).setData(it.uri).putExtra("name",it.displayName))}};GalleryStyle.add(bottom,editAction)
         GalleryStyle.add(bottom,GalleryStyle.action(this,"delete","Delete"){current?.let{deletion.delete(listOf(it.uri))}})
-        GalleryStyle.add(bottom,GalleryStyle.action(this,"more","More"){AlertDialog.Builder(this).setItems(arrayOf("Photo details","Previous photo","Next photo","People in this photo","Rotate photo")){_,which->when(which){0->info();1->navigate(-1);2->navigate(1);3->showPeople();4->pager.currentImage()?.rotateQuarterTurn()}}.show()})
         chrome.addView(bottom);root.addView(chrome,FrameLayout.LayoutParams(-1,-1))
         viewerRoot=root;root.addView(peopleHost,FrameLayout.LayoutParams(-1,0))
         root.viewTreeObserver.addOnGlobalLayoutListener{layoutPeople()}
@@ -137,6 +138,7 @@ class PhotoActivity : Activity() {
         }
         setEnterSharedElementCallback(sharedCallback);setExitSharedElementCallback(sharedCallback)
         Ui.back(this){closePhoto()}
+        current?.takeIf{it.isVideo}?.let{photos=listOf(it);filmAdapter.submit(photos);pager.submit(photos,it.uri.toString())}
     }
     private fun toggleControls(){
         if(peopleSheet.isShowing){peopleSheet.dismiss();return}
@@ -145,7 +147,7 @@ class PhotoActivity : Activity() {
         if(controlsVisible)chrome.visibility=View.VISIBLE
         chrome.animate().alpha(if(controlsVisible)1f else 0f).setDuration(160)
             .withEndAction{chrome.visibility=if(controlsVisible)View.VISIBLE else View.INVISIBLE}.start()
-        viewerBars(controlsVisible)
+        pager.showVideoControls(controlsVisible);viewerBars(controlsVisible)
     }
     @Suppress("DEPRECATION")
     private fun viewerBars(visible:Boolean){
@@ -182,7 +184,7 @@ class PhotoActivity : Activity() {
                 val previousPhotos=photos
                 photos = list?.takeIf{it.isNotEmpty()} ?: listOfNotNull(current)
                 val record = photos.find { it.uri == current?.uri }
-                if (record != null) { current = record; updateTitle();peopleSheet.prepare(record) }
+                if (record != null) { current = record; updateTitle();if(!record.isVideo)peopleSheet.prepare(record) }
                 if(photos!=previousPhotos){
                     filmAdapter.submit(photos)
                     pager.submit(photos,current?.uri.toString().orEmpty());film.focus(photos.indexOfFirst{it.uri==current?.uri},animate=false)
@@ -219,9 +221,15 @@ class PhotoActivity : Activity() {
     private fun share() {
         val uri = current?.uri ?: return
         runCatching { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
-            type = contentResolver.getType(uri) ?: "image/*"; putExtra(Intent.EXTRA_STREAM, uri)
+            type = contentResolver.getType(uri) ?: if(current?.isVideo==true)"video/*"else"image/*"; putExtra(Intent.EXTRA_STREAM, uri)
             clipData = ClipData.newUri(contentResolver, "Photo", uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }, "Share photo")) }.onFailure { Toast.makeText(this, "Could not share this photo.", Toast.LENGTH_SHORT).show() }
+        }, "Share media")) }.onFailure { Toast.makeText(this, "Could not share this item.", Toast.LENGTH_SHORT).show() }
+    }
+    private fun mediaMenu(){
+        val actions=mutableListOf(GalleryMenu.Action("info","Details"){info()})
+        if(current?.isVideo!=true){actions+=GalleryMenu.Action("personAdd","People in this photo"){showPeople()};actions+=GalleryMenu.Action("rotate","Rotate photo"){pager.currentImage()?.rotateQuarterTurn()}}
+        actions+=GalleryMenu.Action("settings","Settings"){startActivity(Intent(this,SettingsActivity::class.java))}
+        GalleryMenu.show(this,if(current?.isVideo==true)"Video options"else"Photo options",actions)
     }
     private fun info(){current?.let{PhotoDetails.show(this,it)}}
     override fun onPause() {
@@ -229,7 +237,7 @@ class PhotoActivity : Activity() {
         pager.pause(retainImage=closing)
         super.onPause()
     }
-    override fun onSaveInstanceState(state: Bundle) { state.putString("uri", current?.uri.toString()); deletion.save(state); super.onSaveInstanceState(state) }
+    override fun onSaveInstanceState(state: Bundle) { state.putString("uri", current?.uri.toString());state.putString("mimeType",current?.mimeType);pager.videoState()?.let{state.putString("videoUri",it.uri);state.putLong("videoPosition",it.position);state.putBoolean("videoPlaying",it.playing)}; deletion.save(state); super.onSaveInstanceState(state) }
     @Deprecated("Legacy activity results")
     override fun onActivityResult(code: Int, result: Int, data: Intent?) { super.onActivityResult(code, result, data); deletion.onActivityResult(code, result) }
     override fun onRequestPermissionsResult(code: Int, permissions: Array<out String>, results: IntArray) {
