@@ -66,12 +66,12 @@ class PeopleActivity:Activity(){
     companion object{
         private val cache=PeopleCache<ViewData>();private val duplicateCache=PeopleCache<ViewData>()
         private val warming=java.util.concurrent.atomic.AtomicBoolean();private val warmWorker=Executors.newSingleThreadExecutor()
-        private var lastWarm=0L
         fun warm(context:android.content.Context,photos:List<PhotoRecord>){
             val app=context.applicationContext
-            if(cache.get(app)!=null || !AutoPeople.allowed(app) || warming.get() || (lastWarm>0 && android.os.SystemClock.elapsedRealtime()-lastWarm<10_000))return
+            if(GalleryData.peek(app)?.photos!=photos)return
+            if(cache.get(app)!=null || !AutoPeople.allowed(app) || warming.get())return
             if(!warming.compareAndSet(false,true))return
-            lastWarm=android.os.SystemClock.elapsedRealtime();val revision=PeopleData.version;val media=GalleryData.version
+            val revision=PeopleData.version;val media=GalleryData.version
             warmWorker.execute{try{
                 val signal=CancellationSignal();val data=readData(app,photos,signal,false){AutoPeople.allowed(app) && media==GalleryData.version}
                 if(media==GalleryData.version)cache.put(app,revision,data,media)
@@ -151,7 +151,7 @@ class PeopleActivity:Activity(){
         }
         if(canUndo)actions+=GalleryMenu.Action("undo","Undo last correction"){mutate{it.undoCorrection()}}
         actions+=GalleryMenu.Action("settings","Settings"){settings()}
-        GalleryMenu.show(this,"People options",actions)
+        GalleryMenu.show(this,"People options",actions,anchor)
     }
     private fun settings(){startActivity(Intent(this,SettingsActivity::class.java))}
     private fun advanced(){

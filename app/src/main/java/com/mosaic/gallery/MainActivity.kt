@@ -56,6 +56,7 @@ class MainActivity : Activity() {
     private var observed = false
     private var needsRefresh = true
     private var loadedAccess:Access? = null
+    private var loadedScope=""
     private var lastFavorites = emptySet<String>()
     private var permissionInFlight=false
     private lateinit var galleryRoot:View
@@ -114,13 +115,13 @@ class MainActivity : Activity() {
         })
     }
     override fun onResume() {
-        super.onResume();if(isFinishing)return;active=true
+        super.onResume();if(isFinishing)return;active=true;GalleryData.resumed(this)
         if(requestStartupAccess())return
         galleryRoot.visibility=View.VISIBLE
         AutoPeople.ensure(this,0)
         // A first installation has no index to inspect. Establish the service before a long media query.
         if(!getDatabasePath("faces.db").exists() && FaceHeat(this).canRun())launchAutomaticRecognition()
-        if(needsRefresh || loadedAccess!=currentAccess())refreshGallery()
+        if(needsRefresh || loadedAccess!=currentAccess() || loadedScope!=MediaAccess.scope(this) || GalleryData.peek(this)==null)refreshGallery()
         else {
             val favorites=GalleryStyle.favorites(this)
             if(favorites!=lastFavorites && (page=="Albums" || album=="@favorites")){
@@ -164,13 +165,14 @@ class MainActivity : Activity() {
         selectionBar=GalleryStyle.bar(this)
         GalleryStyle.add(selectionBar,GalleryStyle.action(this,"share","Share"){shareSelected()})
         GalleryStyle.add(selectionBar,GalleryStyle.action(this,"delete","Delete"){deletion.delete(allPhotos.filter{it.uri.toString() in selected}.map{it.uri})})
-        GalleryStyle.add(selectionBar,GalleryStyle.action(this,"more","Selection options"){
+        val selectionMore=GalleryStyle.action(this,"more","Selection options"){}
+        selectionMore.setOnClickListener{anchor->
             val actions=mutableListOf<GalleryMenu.Action>()
             if(selected.size==1)actions+=GalleryMenu.Action("info","Details"){allPhotos.firstOrNull{it.uri.toString() in selected}?.let{PhotoDetails.show(this,it)}}
             actions+=GalleryMenu.Action("select","Select all"){selected.addAll(visible.map{it.uri.toString()});updateSelection()}
             actions+=GalleryMenu.Action("close","Clear selection"){selected.clear();updateSelection()}
-            GalleryMenu.show(this,"Selection",actions)
-        });root.addView(selectionBar)
+            GalleryMenu.show(this,"Selection",actions,anchor)
+        };GalleryStyle.add(selectionBar,selectionMore);root.addView(selectionBar)
         navigation=GalleryStyle.bar(this);root.addView(navigation)
         Ui.insets(this,root);updateSelection();return root
     }
@@ -213,7 +215,7 @@ class MainActivity : Activity() {
         grid.animate().cancel();grid.alpha=1f;grid.scaleX=1f;grid.scaleY=1f;openingAlbum=false
         page=value;album="";folderOpen=false;selecting=false;selected.clear();scrollPosition=0;render()
     }
-    override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);intent.getStringExtra("browsePage")?.takeIf{it=="Photos" || it=="Albums"}?.let{switchPage(it)}}
+    override fun onNewIntent(intent:Intent){super.onNewIntent(intent);setIntent(intent);if(intent.getBooleanExtra("requestMedia",false)){intent.removeExtra("requestMedia");requestPhotoAccess();return};intent.getStringExtra("browsePage")?.takeIf{it=="Photos" || it=="Albums"}?.let{switchPage(it)}}
     private fun render(){
         (grid as? PinchPhotoGrid)?.cancelResize()
         val columns=if(page=="Albums" && !folderOpen)3 else if(page=="Photos")photoColumns else 4
@@ -229,7 +231,7 @@ class MainActivity : Activity() {
             GalleryMenu.Action("personAdd","People"){startActivity(Intent(this,PeopleActivity::class.java))},
             GalleryMenu.Action("redo","Refresh library"){adapter.retryThumbnails();refreshGallery()},
             GalleryMenu.Action("settings","Settings"){startActivity(Intent(this,SettingsActivity::class.java))}
-        ))
+        ),anchor)
     }
     private fun toggle(photo: PhotoRecord) {
         val key = photo.uri.toString(); if (!selected.add(key)) selected.remove(key); updateSelection()
@@ -300,13 +302,13 @@ class MainActivity : Activity() {
         if (!active) return
         needsRefresh=true
         val savedLayout=grid.layoutManager?.onSaveInstanceState()
-        val access = currentAccess(); signal?.cancel(); val token = ++revision
+        val access = currentAccess();val scope=MediaAccess.scope(this); signal?.cancel(); val token = ++revision
         if (adapter.itemCount > 0) scrollPosition = (grid.layoutManager as? GridLayoutManager)?.findFirstVisibleItemPosition()?.coerceAtLeast(0) ?: 0
         progress.visibility = View.GONE; message.visibility = View.GONE; action.visibility = View.GONE
         grid.visibility = if (access == Access.NONE) View.GONE else View.VISIBLE
 
         if (access == Access.NONE) { finish(); return }
-        if (!observed) observed = runCatching { contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer) }.isSuccess
+        if (!observed) observed = runCatching { contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer);contentResolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, observer) }.isSuccess
         if (access == Access.PARTIAL) {
             action.text = "Change selected media"; action.setOnClickListener { requestPhotoAccess() }; action.visibility = View.VISIBLE
         }
@@ -321,8 +323,8 @@ class MainActivity : Activity() {
                 val cached=PhotoIndex.read(this)
                 val pending=cached!=null && AutoPeople.canStartVisible(this) && runCatching{FaceHeat(this).canRun() && AutoPeople.hasPending(this,cached.photos)}.getOrDefault(false)
                 if(cached!=null)runOnUiThread{
-                    if(active && !query.isCanceled && token==revision && !isDestroyed && currentAccess()==access){
-                        allPhotos=cached.photos;unreadableVolumes=cached.unreadableVolumes;loadedAccess=access;progress.visibility=View.GONE
+                    if(active && !query.isCanceled && token==revision && !isDestroyed && currentAccess()==access && MediaAccess.scope(this)==scope){
+                        allPhotos=cached.photos;unreadableVolumes=cached.unreadableVolumes;loadedAccess=access;loadedScope=scope;progress.visibility=View.GONE
                         render();grid.layoutManager?.onRestoreInstanceState(savedLayout)
                         // Start from the saved index before a slow MediaStore validation can delay the handoff.
                         if(pending)launchAutomaticRecognition()
@@ -331,12 +333,12 @@ class MainActivity : Activity() {
             }
             val result = runCatching { GalleryData.load(this,query,true) }
             runOnUiThread {
-                if (!active || query.isCanceled || token != revision || isDestroyed || currentAccess()!=access) return@runOnUiThread
+                if (!active || query.isCanceled || token != revision || isDestroyed || (currentAccess()!=access || MediaAccess.scope(this)!=scope)) return@runOnUiThread
                 progress.visibility = View.GONE
                 result.onSuccess {
                     val changed=allPhotos!=it.photos || loadedAccess!=access
                     allPhotos = it.photos; unreadableVolumes = it.unreadableVolumes
-                    loadedAccess=access;needsRefresh=false;lastFavorites=GalleryStyle.favorites(this);AutoPeople.ensure(this);startAutomaticRecognition();PeopleActivity.warm(this,it.photos)
+                    loadedAccess=access;loadedScope=scope;needsRefresh=false;lastFavorites=GalleryStyle.favorites(this);AutoPeople.ensure(this);startAutomaticRecognition();PeopleActivity.warm(this,it.photos)
                     selected.retainAll(allPhotos.map { photo -> photo.uri.toString() }.toSet())
                     if(changed || grid.layoutManager==null){render();grid.layoutManager?.onRestoreInstanceState(savedLayout)}else updateCount()
                 }.onFailure {
@@ -367,19 +369,19 @@ class MainActivity : Activity() {
     /** Ask once on first launch/update; a declined optional permission stays optional. */
     private fun requestStartupAccess():Boolean {
         if(permissionInFlight)return currentAccess()==Access.NONE
+        if(intent.getBooleanExtra("requestMedia",false)){intent.removeExtra("requestMedia");requestPhotoAccess();return currentAccess()==Access.NONE}
         val prefs=getSharedPreferences("startup-access",0)
         val contacts=ContactRecognition.enabled(this) && !ContactRecognition.allowed(this) && !prefs.getBoolean("contacts-asked",false)
-        val videos=Build.VERSION.SDK_INT>=33 && !MediaAccess.fullVideos(this) && !prefs.getBoolean("videos-asked",false) && !MediaAccess.selected(this)
+        val videos=Build.VERSION.SDK_INT>=33 && !MediaAccess.fullVideos(this) && prefs.getInt("media-request-policy",0)<2
         if(currentAccess()!=Access.NONE && !contacts && !videos)return false
         val permissions=mutableListOf<String>()
         if(currentAccess()==Access.NONE){
             galleryRoot.visibility=View.INVISIBLE
             permissions.addAll(MediaAccess.permissions())
         }else if(videos){
-            permissions.add(Manifest.permission.READ_MEDIA_VIDEO)
-            if(Build.VERSION.SDK_INT>=34)permissions.add(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+            permissions.addAll(MediaAccess.permissions())
         }
-        if(Manifest.permission.READ_MEDIA_VIDEO in permissions)prefs.edit().putBoolean("videos-asked",true).apply()
+        if(Manifest.permission.READ_MEDIA_VIDEO in permissions)prefs.edit().putBoolean("videos-asked",true).putInt("media-request-policy",2).apply()
         if(contacts){permissions.add(Manifest.permission.READ_CONTACTS);prefs.edit().putBoolean("contacts-asked",true).apply()}
         permissionInFlight=true
         requestPermissions(permissions.toTypedArray(),1001)

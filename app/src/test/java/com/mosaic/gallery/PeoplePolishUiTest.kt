@@ -26,6 +26,7 @@ class PeoplePolishUiTest {
             val icon=find(controller.get().window.decorView)!!;icon.performClick()
             val dialog=org.robolectric.shadows.ShadowDialog.getLatestDialog()
             fun labels(view:View):List<String> =(if(view is android.widget.TextView)listOf(view.text.toString())else emptyList())+if(view is ViewGroup)(0 until view.childCount).flatMap{labels(view.getChildAt(it))}else emptyList()
+            assertEquals(android.view.Gravity.TOP or android.view.Gravity.LEFT,dialog.window!!.attributes.gravity)
             val titles=labels(dialog.window!!.decorView)
             assertTrue(titles.containsAll(listOf("Identify people","Review similar people","Settings")))
             assertFalse(titles.contains("Recognition tools"));assertFalse(titles.contains("Reset people"))

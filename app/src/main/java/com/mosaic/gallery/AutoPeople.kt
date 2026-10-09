@@ -125,6 +125,9 @@ open class AutoPeopleJob:JobService() {
                     // A disconnected volume or selected-only access must not erase confirmed identities.
                     val complete=MediaAccess.fullPhotos(this) && result.unreadableVolumes==0
                     AutoPeople.retainIfChanged(this,store,photos,complete)
+                    // Reserve a turn for portraits even while a large gallery is still catching up.
+                    val contacts=ContactRecognition.runSafe(this,store,::keepGoing,run.signal,limit=2)
+                    retryDelay=contacts.retryDelay
                     val detectionDeadline=minOf(deadline-10_000,SystemClock.elapsedRealtime()+8_000)
                     val pending=store.pending(photos,false).take(8)
                     if(pending.isNotEmpty() && keepGoing())detect(store,pending,{keepGoing() && SystemClock.elapsedRealtime()<detectionDeadline})
@@ -144,13 +147,9 @@ open class AutoPeopleJob:JobService() {
                         PeopleGrouping.run(PeopleStore(store),::keepGoing,reuseComparisons=true)
                         if(keepGoing())AutoPeople.grouped(this,AutoPeople.revision(this))
                     }
-                    retryDelay=store.nextRetryDelay()
+                    retryDelay=listOfNotNull(retryDelay,store.nextRetryDelay()).minOrNull()
                     more=store.pending(photos,false).isNotEmpty() || store.pendingSignatures(photos,false).isNotEmpty() || (AutoPeople.needsGrouping(this) && store.signatureSummary().ready>0) || SignatureRefinement.candidates(store,photos,1).isNotEmpty()
-                    if(keepGoing()){
-                        val contacts=ContactRecognition.run(this,store,::keepGoing,run.signal)
-                        more=more || contacts.more
-                        retryDelay=listOfNotNull(retryDelay,contacts.retryDelay).minOrNull()
-                    }else more=more || ContactRecognition.needsWork(this)
+                    more=more || contacts.more || ContactRecognition.needsWork(this)
                 }
             }}
             main.post{

@@ -1,4 +1,4 @@
-## Contact portrait matching — 0.9.0-media
+## Contact portrait matching — 0.9.1-media-fixes
 
 Built from the current faceGallery repository, commit 871dd672cae1ee1ca5bd1b60758dfdafba52f628.
 
@@ -54,7 +54,7 @@ The APK and AAB are signed using **the same key you provided**. On every manual 
 
 - Android Gradle Plugin 8.13.2, Kotlin 2.3.0, Gradle 8.13 and JDK 17.
 - Android API 36 and SDK Build Tools 35.0.0; minimum supported Android API 28 (Android 9).
-- App ID `com.mosaic.gallery`; version code 37; version name `0.9.0-media`.
+- App ID `com.mosaic.gallery`; version code 37; version name `0.9.1-media-fixes`.
 - `./gradlew :app:assembleDebug` makes a local debug APK, which Android signs with the developer machine's local debug key, not your Play upload key.
 
 ## Important release notes
@@ -79,3 +79,7 @@ Android 13+ requests READ_MEDIA_IMAGES and READ_MEDIA_VIDEO. Android 14+ also su
 Gallery, people, viewer and selection menus use the same themed action panel. Settings opens a dedicated screen for recognition/contacts, people management, tools, permissions and about information. The launcher icon is adaptive, with a themed monochrome variant; editable SVG geometry and a PNG preview are in design/.
 
 The notification's Pause for 24 hours action schedules a persisted next-day wake-up. Restarting the phone restores the remaining delay. Once it expires, recognition resumes from saved work under the existing safety gates. Turning off Background recognition in Settings remains a permanent pause and cancels that timer. Android's scheduling and battery restrictions can delay the actual retry.
+
+## 0.9.1 repairs
+
+Version code 40 fixes video access on updates, tracks permission changes and video events, anchors themed menus to their buttons, preserves Search profiles across internal navigation, and repairs contact portrait reading and bounded background scheduling. See `MEDIA-FIXES-REVIEW.md` for details and phone acceptance.

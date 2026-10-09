@@ -93,6 +93,57 @@ class ContactRecognitionTest {
         org.robolectric.util.ReflectionHelpers.setField(params,"mTriggeredContentAuthorities",arrayOf(android.provider.MediaStore.AUTHORITY))
         controller.get().onStartJob(params);assertTrue(GalleryData.version>before);controller.destroy()
     }
+    @Test fun providerPortraitUriIsUsedBeforeLookupFallback(){
+        val portrait=java.io.File(app.cacheDir,"contact-photo").apply{writeBytes(byteArrayOf(11,22,33))};var queries=0;var opened:Uri?=null
+        ShadowContentResolver.registerProviderInternal("portraits",object:ContentProvider(){
+            override fun onCreate()=true
+            override fun openAssetFile(uri:Uri,mode:String):android.content.res.AssetFileDescriptor {opened=uri;return android.content.res.AssetFileDescriptor(android.os.ParcelFileDescriptor.open(portrait,android.os.ParcelFileDescriptor.MODE_READ_ONLY),0,portrait.length())}
+            override fun query(uri:Uri,p:Array<out String>?,s:String?,a:Array<out String>?,o:String?):Cursor?{queries++;return null}
+            override fun getType(uri:Uri)="image/jpeg"
+            override fun insert(uri:Uri,v:ContentValues?):Uri?=null
+            override fun delete(uri:Uri,s:String?,a:Array<out String>?)=0
+            override fun update(uri:Uri,v:ContentValues?,s:String?,a:Array<out String>?)=0
+        })
+        Shadows.shadowOf(app.contentResolver).registerInputStreamSupplier(Uri.parse("content://portraits/full/1")){opened=Uri.parse("content://portraits/full/1");portrait.inputStream()}
+        assertArrayEquals(byteArrayOf(11,22,33),ContactRecognition.readPhoto(app,photo().copy(portraitUri="content://portraits/full/1",id=1)))
+        assertEquals("content://portraits/full/1",opened.toString());assertEquals(0,queries)
+    }
+    @Test fun numericContactFallbackReadsThumbnailWhenFullPortraitIsUnavailable(){
+        var queried:Uri?=null
+        ShadowContentResolver.registerProviderInternal(ContactsContractAuthority,object:ContentProvider(){
+            override fun onCreate()=true
+            override fun openAssetFile(uri:Uri,mode:String):android.content.res.AssetFileDescriptor?=throw java.io.FileNotFoundException("No full portrait")
+            override fun query(uri:Uri,p:Array<out String>?,s:String?,a:Array<out String>?,o:String?):Cursor {queried=uri;return MatrixCursor(arrayOf("data15")).apply{addRow(arrayOf(byteArrayOf(3,4)))}}
+            override fun getType(uri:Uri)="image/jpeg"
+            override fun insert(uri:Uri,v:ContentValues?):Uri?=null
+            override fun delete(uri:Uri,s:String?,a:Array<out String>?)=0
+            override fun update(uri:Uri,v:ContentValues?,s:String?,a:Array<out String>?)=0
+        })
+        assertArrayEquals(byteArrayOf(3,4),ContactRecognition.readPhoto(app,photo().copy(id=1)));assertEquals("content://com.android.contacts/contacts/1/photo",queried.toString())
+    }
+    @Test fun oldSkippedPortraitIsRecheckedOnceAfterReaderUpgrade(){FaceStore(app).use{store->
+        var encodes=0;fun run()=ContactRecognition.scan(store,listOf(photo()),{true},read={byteArrayOf(1)},infer={encodes++;vector()})
+        run();store.writableDatabase.execSQL("UPDATE contact_signatures SET model=?,status='skipped',vector=NULL",arrayOf(FaceVectors.MODEL));run();run();assertEquals(2,encodes);assertEquals("done",ContactRecognition.cached(store,contact().lookup)!!.status)
+    }}
+    @Test fun usableContactThumbnailIsNotRejectedByGalleryResolutionScore(){
+        val portrait=face.copy(left=0f,top=0f,right=.5f,bottom=.5f,score=.5f,authority="Support",landmarks=List(10){.3f})
+        assertTrue(ContactRecognition.usablePortrait(120,120,portrait));assertFalse(ContactRecognition.usablePortrait(80,80,portrait));assertFalse(ContactRecognition.usablePortrait(120,120,portrait.copy(sharpness=2f)))
+    }
+    @Test fun clearContactMatchCanSeedAnUnassignedGalleryFace(){FaceStore(app).use{store->
+        val record=PhotoRecord(1,Uri.parse("content://contact-seed/1"),"1.jpg",120000,400,300,"Camera");store.save(record,listOf(face));store.saveSignature(record.uri.toString(),0,vector())
+        assertEquals(1,ContactRecognition.match(store,listOf(reference()),{true}));assertEquals(contact(),PeopleStore(store).contacts().values.single());assertEquals("known",PeopleStore(store).members().single().status);assertEquals(1,store.summary().faces)
+        assertEquals(0,ContactRecognition.match(store,listOf(reference()),{true}))
+    }}
+    @Test fun contactRetryDeadlineIsNotSuppressedByCompletedSweepCache(){
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_CONTACTS)
+        val p=app.getSharedPreferences("contact-recognition",0);p.edit().putString("model",FaceVectors.MODEL+"|portrait-v2").putLong("checked",System.currentTimeMillis()).putLong("faces",AutoPeople.revision(app)).putLong("retry-at",System.currentTimeMillis()+60000).commit();assertFalse(ContactRecognition.needsWork(app))
+        FaceStore(app).use{store->assertTrue(ContactRecognition.run(app,store,{true}).retryDelay!! in 1..60000)}
+        p.edit().putLong("retry-at",System.currentTimeMillis()-1).commit();assertTrue(ContactRecognition.needsWork(app))
+    }
+    @Test fun unavailableAddressBookBacksOffWithoutFailingGalleryWork(){
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_CONTACTS);ShadowContentResolver.registerProviderInternal(ContactsContractAuthority,Contacts().apply{unavailable=true})
+        FaceStore(app).use{store->val result=ContactRecognition.runSafe(app,store,{true});assertFalse(result.more);assertEquals(15*60_000L,result.retryDelay);assertFalse(ContactRecognition.needsWork(app));ContactRecognition.invalidate(app);assertTrue(ContactRecognition.needsWork(app))}
+    }
     companion object{private const val ContactsContractAuthority="com.android.contacts"}
     class Contacts(private val withPhoto:Boolean=true):ContentProvider(){var calls=0;var unavailable=false;var projection:Array<out String>?=null;var uri:Uri?=null;override fun onCreate()=true;override fun query(uri:Uri,projection:Array<out String>?,selection:String?,args:Array<out String>?,sort:String?):Cursor?{calls++;this.uri=uri;this.projection=projection;if(unavailable)return null;return MatrixCursor(projection!!).apply{for(i in 1..150)addRow(arrayOf<Any?>(i,"key$i","Name $i",if(withPhoto)10 else null,if(withPhoto)"content://portraits/$i"else null,100))}};override fun getType(uri:Uri)="vnd.android.cursor.dir/contact";override fun insert(uri:Uri,values:ContentValues?):Uri?=null;override fun delete(uri:Uri,selection:String?,args:Array<out String>?)=0;override fun update(uri:Uri,values:ContentValues?,selection:String?,args:Array<out String>?)=0}
 }

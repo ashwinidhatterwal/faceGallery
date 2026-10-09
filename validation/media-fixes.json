@@ -1,0 +1,35 @@
+{
+  "version_name": "0.9.1-media-fixes",
+  "version_code": 40,
+  "android_tests": {
+    "tests": 401,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "python_tests": 4,
+  "release_lint": {
+    "Warning": 126,
+    "Error": 0
+  },
+  "release_builds": "APK and AAB succeeded; unsigned local verification only",
+  "release_integrity": {
+    "model_sha256": "35e2fc149c76efefefbc264fcb5153a467a1b490a82001aba19bd7fc432ec235",
+    "native_libraries": [
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libface_detector_v2_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libtensorflowlite_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libface_detector_v2_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libtensorflowlite_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libface_detector_v2_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libtensorflowlite_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libface_detector_v2_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libtensorflowlite_jni.so"
+    ],
+    "signed_required": false,
+    "apk_sha256": "c0dc5f9b4c9a78a307e9087c4ac6a707d54cb1c606fd5b540a327a5635882674",
+    "bundle_sha256": "1e4db739be2a5c8cc78e8a1b437309b66bb5d8d165e58f2cc5350c94ddf5b66a"
+  },
+  "visual_review": "Anchored menus in both themes; updated Settings renders",
+  "phone_acceptance": "Pending real video/contacts and background acceptance; see MEDIA-FIXES-REVIEW.md",
+  "github": "Remote unchanged; existing signed-release workflow and secrets retained"
+}

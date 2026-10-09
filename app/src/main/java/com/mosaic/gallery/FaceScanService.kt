@@ -121,7 +121,7 @@ open class FaceScanService:Service(){
                     }
                 }
                 if(mode in listOf(GROUP,SIGNATURES) && keepGoing() && store.pending(photos,false).isEmpty() && store.pendingSignatures(photos,false).isEmpty())AutoPeople.grouped(this,AutoPeople.revision(this))
-                if(mode in listOf(GROUP,SIGNATURES) && keepGoing())ContactRecognition.run(this,store,::keepGoing,query)
+                if(mode in listOf(GROUP,SIGNATURES) && keepGoing())ContactRecognition.runSafe(this,store,::keepGoing,query)
                 faces=store.summary();signatures=store.signatureSummary()
             }
         }

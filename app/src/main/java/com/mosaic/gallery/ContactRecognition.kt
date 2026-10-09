@@ -14,9 +14,10 @@ import java.security.MessageDigest
 
 /** Contact portraits are references, not gallery photos. Never insert them into the face graph. */
 object ContactRecognition {
-    private const val POLICY="contacts-v1"
+    private const val POLICY="contacts-v2"
+    private const val PORTRAIT_MODEL=FaceVectors.MODEL+"|portrait-v2"
     private const val CHECK_INTERVAL=15*60_000L
-    data class Photo(val contact:ContactNames.Contact,val stamp:String)
+    data class Photo(val contact:ContactNames.Contact,val stamp:String,val portraitUri:String?=null,val id:Long=0)
     data class Reference(val contact:ContactNames.Contact,val vector:FloatArray)
     data class Cached(val stamp:String,val digest:String,val vector:FloatArray?,val status:String,val attempts:Int,val next:Long)
     data class Result(val more:Boolean,val retryDelay:Long?)
@@ -29,12 +30,12 @@ object ContactRecognition {
     fun allowed(c:Context)=c.checkSelfPermission(Manifest.permission.READ_CONTACTS)==PackageManager.PERMISSION_GRANTED
     fun available(c:Context)=enabled(c) && allowed(c)
     fun setEnabled(c:Context,value:Boolean){
-        prefs(c).edit().putBoolean("enabled",value).remove("checked").apply()
+        prefs(c).edit().putBoolean("enabled",value).remove("checked").remove("provider-retry-at").apply()
         if(value)AutoPeople.ensure(c,1_000)
         else {val app=c.applicationContext;Thread({FaceWork.write{if(!enabled(app))FaceStore(app).use(::clear)}},"contact-cache-clear").start()}
     }
-    fun invalidate(c:Context){prefs(c).edit().remove("checked").apply()}
-    fun needsWork(c:Context):Boolean = available(c) && (prefs(c).getString("model","")!=FaceVectors.MODEL || System.currentTimeMillis()-prefs(c).getLong("checked",0)>=CHECK_INTERVAL || prefs(c).getLong("faces",-1)!=AutoPeople.revision(c))
+    fun invalidate(c:Context){prefs(c).edit().remove("checked").remove("provider-retry-at").apply()}
+    fun needsWork(c:Context):Boolean = available(c) && System.currentTimeMillis()>=prefs(c).getLong("provider-retry-at",0) && (prefs(c).getLong("provider-retry-at",0)>0 || prefs(c).getString("model","")!=PORTRAIT_MODEL || System.currentTimeMillis()-prefs(c).getLong("checked",0)>=CHECK_INTERVAL || prefs(c).getLong("faces",-1)!=AutoPeople.revision(c) || prefs(c).getLong("retry-at",0).let{it>0 && System.currentTimeMillis()>=it})
     fun clear(store:FaceStore){store.writableDatabase.delete("contact_signatures",null,null);store.writableDatabase.delete("contact_matches",null,null)}
     /** One local query, no phone numbers, remote directories, or contact-count limit. */
     fun photos(c:Context,signal:CancellationSignal):List<Photo> {
@@ -52,25 +53,42 @@ object ContactRecognition {
                 val uri=if(uriIndex>=0 && !cursor.isNull(uriIndex))cursor.getString(uriIndex)else ""
                 if(photo.isEmpty() && uri.isEmpty())continue
                 val time=if(timeIndex>=0 && !cursor.isNull(timeIndex))cursor.getString(timeIndex)else ""
-                add(Photo(ContactNames.Contact(ContactsContract.Contacts.getLookupUri(cursor.getLong(0),key).toString(),name),"$photo|$uri|$time"))
+                add(Photo(ContactNames.Contact(ContactsContract.Contacts.getLookupUri(cursor.getLong(0),key).toString(),name),"$photo|$uri|$time",uri.takeIf{it.isNotBlank()},cursor.getLong(0)))
             }
         }} ?: error("Contacts temporarily unavailable")
     }
     fun cached(store:FaceStore,lookup:String):Cached?=store.readableDatabase.rawQuery("SELECT stamp,digest,vector,status,attempts,next_time,model FROM contact_signatures WHERE lookup=?",arrayOf(lookup)).use{c->
-        if(!c.moveToFirst() || c.getString(6)!=FaceVectors.MODEL)null else Cached(c.getString(0),c.getString(1),if(c.isNull(2))null else FaceVectors.unpack(c.getBlob(2)),c.getString(3),c.getInt(4),c.getLong(5))
+        if(!c.moveToFirst() || c.getString(6)!=PORTRAIT_MODEL)null else Cached(c.getString(0),c.getString(1),if(c.isNull(2))null else FaceVectors.unpack(c.getBlob(2)),c.getString(3),c.getInt(4),c.getLong(5))
     }
     fun due(old:Cached?,photo:Photo,now:Long)=old==null || old.stamp!=photo.stamp || (old.status=="error" && old.attempts<3 && now>=old.next)
     private fun save(store:FaceStore,photo:Photo,value:Cached){
         store.writableDatabase.insertWithOnConflict("contact_signatures",null,ContentValues().apply{
-            put("lookup",photo.contact.lookup);put("name",photo.contact.name);put("stamp",value.stamp);put("digest",value.digest);put("model",FaceVectors.MODEL);put("status",value.status);put("vector",value.vector?.let(FaceVectors::pack));put("attempts",value.attempts);put("next_time",value.next)
+            put("lookup",photo.contact.lookup);put("name",photo.contact.name);put("stamp",value.stamp);put("digest",value.digest);put("model",PORTRAIT_MODEL);put("status",value.status);put("vector",value.vector?.let(FaceVectors::pack));put("attempts",value.attempts);put("next_time",value.next)
         },SQLiteDatabase.CONFLICT_REPLACE)
     }
     fun hash(bytes:ByteArray)=MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(""){"%02x".format(it)}
-    private fun bytes(c:Context,photo:Photo):ByteArray=ContactsContract.Contacts.openContactPhotoInputStream(c.contentResolver,Uri.parse(photo.contact.lookup),true)?.use{stream->
-        val output=java.io.ByteArrayOutputStream();val buffer=ByteArray(8192)
-        while(true){val count=stream.read(buffer);if(count<0)break;require(output.size()+count<=8*1024*1024){"Contact photo too large"};output.write(buffer,0,count)}
-        output.toByteArray().also{require(it.isNotEmpty())}
-    }?:error("Contact photo temporarily unavailable")
+    /** Prefer the provider's full portrait URI; lookup URIs are identity links, not image paths. */
+    internal fun readPhoto(c:Context,photo:Photo,signal:CancellationSignal=CancellationSignal()):ByteArray {
+        fun read(stream:java.io.InputStream?):ByteArray?=stream?.use{
+            val output=java.io.ByteArrayOutputStream();val buffer=ByteArray(8192)
+            while(true){signal.throwIfCanceled();val count=it.read(buffer);if(count<0)break;require(output.size()+count<=8*1024*1024){"Contact photo too large"};output.write(buffer,0,count)}
+            output.toByteArray().takeIf{it.isNotEmpty()}
+        }
+        photo.portraitUri?.let{uri->
+            signal.throwIfCanceled()
+            runCatching{read(c.contentResolver.openInputStream(Uri.parse(uri)))}.getOrNull()?.let{return it}
+        }
+        signal.throwIfCanceled()
+        val numeric=if(photo.id>0)android.content.ContentUris.withAppendedId(ContactsContract.Contacts.CONTENT_URI,photo.id)
+            else ContactsContract.Contacts.lookupContact(c.contentResolver,Uri.parse(photo.contact.lookup))?:error("Contact is temporarily unavailable")
+        runCatching{read(ContactsContract.Contacts.openContactPhotoInputStream(c.contentResolver,numeric,true))}.getOrNull()?.let{return it}
+        signal.throwIfCanceled()
+        return read(ContactsContract.Contacts.openContactPhotoInputStream(c.contentResolver,numeric,false))?:error("Contact photo temporarily unavailable")
+    }
+    internal fun usablePortrait(width:Int,height:Int,face:FaceObservation):Boolean {
+        val side=minOf((face.right-face.left)*width,(face.bottom-face.top)*height)
+        return side>=48 && face.sharpness>=8 && face.landmarks.size==10 && kotlin.math.abs(face.yaw)<=35 && kotlin.math.abs(face.pitch)<=30 && kotlin.math.abs(face.roll)<=40
+    }
     private fun encode(data:ByteArray,detector:FaceEngine,encoder:FaceEncoder):FloatArray? {
         val bitmap=ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(data))){decoder,info,_->
             val ratio=minOf(1.0,1200.0/maxOf(info.size.width,info.size.height),kotlin.math.sqrt(1_500_000.0/(info.size.width.toLong()*info.size.height)))
@@ -78,7 +96,7 @@ object ContactRecognition {
         }
         try{
             val face=detector.detectBitmap(bitmap,requireSingle=true).singleOrNull()?:return null
-            if(face.authority=="Shadow" || face.landmarks.size!=10 || face.score<.65f || kotlin.math.abs(face.yaw)>35 || kotlin.math.abs(face.pitch)>30)return null
+            if(!usablePortrait(bitmap.width,bitmap.height,face))return null
             val aligned=FaceAlignment.crop(bitmap,face)?:return null
             return try{encoder.encode(aligned)}finally{aligned.recycle()}
         }finally{bitmap.recycle()}
@@ -126,14 +144,25 @@ object ContactRecognition {
     }
     fun match(store:FaceStore,references:List<Reference>,keepGoing:()->Boolean):Int {
         if(references.isEmpty())return 0
-        val people=PeopleStore(store);val rows=people.members();val roots=people.components(rows)
+        val people=PeopleStore(store)
+        var seeded=0
+        for(member in people.members().filter{it.person==null && it.ready && !it.manual && it.status!="excluded" && it.face.authority=="Anchor"}){
+            if(!keepGoing())return seeded
+            val vector=people.vector(member.key)?:continue
+            val candidate=GroupRules.Capsule(0,mutableSetOf(),mutableSetOf(member.key.uri),mutableSetOf(member.key.uri),mutableListOf(GroupRules.Prototype(member,vector)))
+            val contact=choose(candidate,references,keepGoing)?:continue
+            if(!keepGoing())return seeded
+            val id=people.record(member,GroupRules.Decision(seed=true,status="known",score=1f,reason="Clear contact portrait match"))?:continue
+            if(people.autoContact(id,contact))seeded++
+        }
+        val rows=people.members();val roots=people.components(rows)
         val named=people.names().keys;val blocked=people.contactAutomationBlocked();val contacts=people.contacts(roots)
         val groups=people.capsules(rows,roots)
         val manual=rows.filter{it.manual}.mapNotNull{it.person?.let{p->roots[p]?:p}}.toSet()
         val eligible=groups.filter{group->contacts[group.id]==null && group.leaves.none{it in named || it in blocked} && group.id !in manual}
-        if(eligible.isEmpty())return 0
+        if(eligible.isEmpty())return seeded
         val referenceToken=hash((POLICY+references.sortedBy{it.contact.lookup}.joinToString{"${it.contact.lookup}:${it.contact.name}:${hash(FaceVectors.pack(it.vector))}"}).toByteArray())
-        var linked=0
+        var linked=seeded
         for(group in eligible){
             if(!keepGoing())break
             val token=hash((referenceToken+group.leaves.sorted().joinToString()+group.prototypes.joinToString{"${it.member.key}:${hash(FaceVectors.pack(it.vector))}"}).toByteArray())
@@ -146,10 +175,20 @@ object ContactRecognition {
         }
         return linked
     }
+    /** A temporarily unavailable address book must not prevent gallery recognition. */
+    fun runSafe(c:Context,store:FaceStore,keepGoing:()->Boolean,signal:CancellationSignal=CancellationSignal(),limit:Int=12):Result = try{run(c,store,keepGoing,signal,limit)}catch(e:Exception){
+        signal.throwIfCanceled()
+        if(!keepGoing())Result(true,null)else{val delay=15*60_000L;prefs(c).edit().putLong("provider-retry-at",System.currentTimeMillis()+delay).apply();Result(false,delay)}
+    }
     /** Called under FaceWork's writer lock by both foreground and scheduled processing. */
-    fun run(c:Context,store:FaceStore,keepGoing:()->Boolean,signal:CancellationSignal=CancellationSignal()):Result {
+    fun run(c:Context,store:FaceStore,keepGoing:()->Boolean,signal:CancellationSignal=CancellationSignal(),limit:Int=12):Result {
         if(!available(c)){clear(store);return Result(false,null)}
         if(!keepGoing())return Result(true,null)
+        if(!needsWork(c)){
+            val now=System.currentTimeMillis();val p=prefs(c)
+            val wake=listOf(p.getLong("provider-retry-at",0),p.getLong("retry-at",0)).filter{it>now}.minOrNull()
+            return Result(false,wake?.let{it-now})
+        }
         val photos=photos(c,signal)
         // Only a successful complete provider query may discard removed contact references.
         val live=photos.map{it.contact.lookup}.toSet()
@@ -158,16 +197,16 @@ object ContactRecognition {
         var detector:FaceEngine?=null;var encoder:FaceEncoder?=null
         try{
             fun active()=keepGoing() && available(c) && !signal.isCanceled
-            val complete=scan(store,photos,::active,limit=12,read={bytes(c,it)},infer={data->
+            val complete=scan(store,photos,::active,limit=limit,read={readPhoto(c,it,signal)},infer={data->
                 val d=detector?:FaceEngine(c).also{detector=it};val e=encoder?:FaceEncoder(c,1).also{encoder=it};encode(data,d,e)
             })
             val references=photos.mapNotNull{p->cached(store,p.contact.lookup)?.takeIf{it.stamp==p.stamp && it.status=="done"}?.vector?.let{Reference(p.contact,it)}}
-            val retry=store.readableDatabase.rawQuery("SELECT MIN(next_time) FROM contact_signatures WHERE status='error' AND attempts<3 AND model=?",arrayOf(FaceVectors.MODEL)).use{if(it.moveToFirst() && !it.isNull(0))maxOf(60_000L,it.getLong(0)-System.currentTimeMillis())else null}
+            val retry=store.readableDatabase.rawQuery("SELECT MIN(next_time) FROM contact_signatures WHERE status='error' AND attempts<3 AND model=?",arrayOf(PORTRAIT_MODEL)).use{if(it.moveToFirst() && !it.isNull(0))maxOf(60_000L,it.getLong(0)-System.currentTimeMillis())else null}
             // Never name someone against a partially scanned address book: an unseen portrait
             // could be the competing contact. Let bounded transient retries finish first too.
-            if(complete && retry==null && active())match(store,references,::active)
+            if(complete && retry==null && active() && match(store,references,::active)>0)AutoPeople.dirty(c)
             if(!available(c)){clear(store);return Result(false,null)}
-            if(complete && active())prefs(c).edit().putLong("checked",System.currentTimeMillis()).putLong("faces",AutoPeople.revision(c)).putString("model",FaceVectors.MODEL).apply()
+            if(complete && active())prefs(c).edit().remove("provider-retry-at").putLong("checked",System.currentTimeMillis()).putLong("retry-at",retry?.let{System.currentTimeMillis()+it}?:0).putLong("faces",AutoPeople.revision(c)).putString("model",PORTRAIT_MODEL).apply()
             return Result(!complete || !active(),retry)
         }finally{detector?.close();encoder?.close()}
     }

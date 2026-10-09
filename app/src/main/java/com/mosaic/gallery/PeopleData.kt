@@ -2,6 +2,7 @@ package com.mosaic.gallery
 
 import android.Manifest
 import android.app.Application
+import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.database.ContentObserver
@@ -39,11 +40,11 @@ class PeopleCache<T> {
     private var entry:Entry<T>?=null
     @Synchronized fun get(context:Context):T?=entry?.takeIf{MediaAccess.allowed(context) && it.access==PeopleData.access(context) && it.revision==PeopleData.version && it.media==GalleryData.version}?.data
     @Synchronized fun preview(context:Context):T?=entry?.takeIf{MediaAccess.allowed(context) && it.access==PeopleData.access(context) && it.media==GalleryData.version}?.data
-    @Synchronized fun put(context:Context,revision:Long,data:T,media:Long=GalleryData.version){if(revision==PeopleData.version && media==GalleryData.version && AutoPeople.allowed(context))entry=Entry(PeopleData.access(context),revision,media,data)}
+    @Synchronized fun put(context:Context,revision:Long,data:T,media:Long=GalleryData.version){if(revision==PeopleData.version && media==GalleryData.version && MediaAccess.allowed(context))entry=Entry(PeopleData.access(context),revision,media,data)}
 }
 object GalleryData {
     private var result:GalleryRepository.Result?=null;private var access="";private var saved=0L
-    private var generation=0L;private var valid=false
+    private var generation=0L;private var valid=false;private var selectionMayChange=false
     private val loadLock=Any()
     val version get()=synchronized(this){generation}
     // No provider or disk I/O under this monitor: media observers run on the UI thread.
@@ -55,27 +56,44 @@ object GalleryData {
     }
     fun load(context:Context,signal:CancellationSignal,force:Boolean=false):GalleryRepository.Result = synchronized(loadLock) {
         signal.throwIfCanceled()
+        val readAccess=PeopleData.access(context)
         val token=synchronized(this){
             if(!force && valid && MediaAccess.allowed(context) && access==PeopleData.access(context) && SystemClock.elapsedRealtime()-saved<120_000)result?.let{return it}
             generation
         }
         val next=GalleryRepository(context).loadPhotos(signal);signal.throwIfCanceled()
-        synchronized(this){if(token==generation)publish(context,next)}
-        if(token==version)PhotoIndex.save(context,next)
+        synchronized(this){if(token==generation && readAccess==PeopleData.access(context))publish(context,next)}
+        if(token==version && readAccess==PeopleData.access(context))PhotoIndex.save(context,next)
         return next
     }
     @Synchronized fun peek(context:Context):GalleryRepository.Result?=result?.takeIf{valid && MediaAccess.allowed(context) && access==PeopleData.access(context)}
     // Selected-photo permissions can change while the app is away; never trust an old selection.
-    fun resumed(context:Context){if(!PhotoIndex.allowed(context))invalidate()}
+    @Synchronized fun backgrounded(){selectionMayChange=true}
+    @Synchronized fun resumed(context:Context){
+        val changed=result!=null && access!=PeopleData.access(context)
+        if(changed || (selectionMayChange && !MediaAccess.cacheable(context)))invalidate()
+        selectionMayChange=false
+    }
 }
 class MosaicApplication:Application() {
     override fun onLowMemory(){FaceThumbnails.clear();super.onLowMemory()}
     @Suppress("DEPRECATION") override fun onTrimMemory(level:Int){if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)FaceThumbnails.clear();super.onTrimMemory(level)}
     override fun onCreate(){super.onCreate()
         val main=Handler(Looper.getMainLooper())
+        var started=0
+        registerActivityLifecycleCallbacks(object:ActivityLifecycleCallbacks{
+            override fun onActivityStarted(a:Activity){started++}
+            override fun onActivityStopped(a:Activity){started--;if(started==0 && !a.isChangingConfigurations)GalleryData.backgrounded()}
+            override fun onActivityCreated(a:Activity,b:Bundle?){}
+            override fun onActivityResumed(a:Activity){}
+            override fun onActivityPaused(a:Activity){}
+            override fun onActivitySaveInstanceState(a:Activity,b:Bundle){}
+            override fun onActivityDestroyed(a:Activity){}
+        })
         val schedule=Runnable{AutoPeople.ensure(this@MosaicApplication)}
         val media=object:ContentObserver(main){override fun onChange(selfChange:Boolean){GalleryData.invalidate();main.removeCallbacks(schedule);main.postDelayed(schedule,2_000)}}
         runCatching{contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,true,media)}
+        runCatching{contentResolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI,true,media)}
         val contacts=object:ContentObserver(main){override fun onChange(selfChange:Boolean){PeopleData.changed();ContactRecognition.invalidate(this@MosaicApplication);main.removeCallbacks(schedule);main.postDelayed(schedule,2_000)}}
         runCatching{contentResolver.registerContentObserver(ContactsContract.Contacts.CONTENT_URI,true,contacts)}
     }

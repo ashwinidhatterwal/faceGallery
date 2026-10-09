@@ -50,12 +50,12 @@ class PermissionGateTest {
         assertArrayEquals(arrayOf(Manifest.permission.READ_MEDIA_IMAGES,Manifest.permission.READ_MEDIA_VIDEO,Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED,Manifest.permission.READ_CONTACTS),shadowOf(c.get()).lastRequestedPermission.requestedPermissions)
         c.pause().stop().destroy()
     }
-    @Test @Config(sdk=[35]) fun selectedPhotoAccessDoesNotAskForFullStorageAgain(){
+    @Test @Config(sdk=[35]) fun selectedPhotoAccessCanAddVideosOnceOnUpgrade(){
         val app=RuntimeEnvironment.getApplication()
         shadowOf(app).denyPermissions(Manifest.permission.READ_MEDIA_IMAGES)
         shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
         val c=Robolectric.buildActivity(MainActivity::class.java).setup()
-        assertArrayEquals(arrayOf(Manifest.permission.READ_CONTACTS),shadowOf(c.get()).lastRequestedPermission.requestedPermissions)
+        assertArrayEquals(MediaAccess.permissions()+Manifest.permission.READ_CONTACTS,shadowOf(c.get()).lastRequestedPermission.requestedPermissions)
         c.pause().stop().destroy()
     }
     @Test fun denialClosesTheGallery(){

@@ -98,7 +98,7 @@ class PhotoActivity : Activity() {
         title=GalleryStyle.text(this,"",21f).apply{maxLines=2;setPadding(12,0,0,0)}
         top.addView(title,LinearLayout.LayoutParams(0,-2,1f))
         favorite=GalleryStyle.action(this,"heart","Favorite",compact=true){toggleFavorite()};top.addView(favorite)
-        top.addView(GalleryStyle.action(this,"more","Media options",compact=true){mediaMenu()});chrome.addView(top)
+        val more=GalleryStyle.action(this,"more","Media options",compact=true){};more.setOnClickListener{mediaMenu(it)};top.addView(more);chrome.addView(top)
         status=GalleryStyle.text(this,"",12f,GalleryStyle.muted(this@PhotoActivity)).apply{setPadding(24,0,24,4)};chrome.addView(status)
         pager=PhotoPager(this).apply {
             deferImageUpgrades=state==null && intent.getBooleanExtra("transition",false)
@@ -225,11 +225,11 @@ class PhotoActivity : Activity() {
             clipData = ClipData.newUri(contentResolver, "Photo", uri); addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }, "Share media")) }.onFailure { Toast.makeText(this, "Could not share this item.", Toast.LENGTH_SHORT).show() }
     }
-    private fun mediaMenu(){
+    private fun mediaMenu(anchor:View){
         val actions=mutableListOf(GalleryMenu.Action("info","Details"){info()})
         if(current?.isVideo!=true){actions+=GalleryMenu.Action("personAdd","People in this photo"){showPeople()};actions+=GalleryMenu.Action("rotate","Rotate photo"){pager.currentImage()?.rotateQuarterTurn()}}
         actions+=GalleryMenu.Action("settings","Settings"){startActivity(Intent(this,SettingsActivity::class.java))}
-        GalleryMenu.show(this,if(current?.isVideo==true)"Video options"else"Photo options",actions)
+        GalleryMenu.show(this,if(current?.isVideo==true)"Video options"else"Photo options",actions,anchor)
     }
     private fun info(){current?.let{PhotoDetails.show(this,it)}}
     override fun onPause() {

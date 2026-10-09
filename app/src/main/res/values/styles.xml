@@ -10,4 +10,8 @@
         <item name="android:statusBarColor">@color/gallery_canvas</item>
         <item name="android:windowActivityTransitions">true</item>
     </style>
+    <style name="GalleryAnchoredMenuAnimation">
+        <item name="android:windowEnterAnimation">@anim/menu_anchor_enter</item>
+        <item name="android:windowExitAnimation">@anim/menu_anchor_exit</item>
+    </style>
 </resources>
