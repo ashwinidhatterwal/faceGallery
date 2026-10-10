@@ -1,0 +1,37 @@
+{
+  "versionCode": 51,
+  "versionName": "1.0.0-rc11",
+  "database_version": 11,
+  "contact_hint_floor": 0.5,
+  "tests": {
+    "tests": 460,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint": {
+    "Error": 0,
+    "Fatal": 0,
+    "Warning": 144
+  },
+  "release_build": "passed",
+  "static_publishing_checks": "passed",
+  "python_release_tests": 4,
+  "release_validation": {
+    "model_sha256": "35e2fc149c76efefefbc264fcb5153a467a1b490a82001aba19bd7fc432ec235",
+    "native_libraries": [
+      "face-gallery/app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libface_detector_v2_jni.so",
+      "face-gallery/app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libtensorflowlite_jni.so",
+      "face-gallery/app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libface_detector_v2_jni.so",
+      "face-gallery/app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libtensorflowlite_jni.so",
+      "face-gallery/app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libface_detector_v2_jni.so",
+      "face-gallery/app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libtensorflowlite_jni.so",
+      "face-gallery/app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libface_detector_v2_jni.so",
+      "face-gallery/app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libtensorflowlite_jni.so"
+    ],
+    "signed_required": false,
+    "apk_sha256": "fa9bc04e89bc2f1685ea54708259f950be7da6fce953b4d5a0c629fbacc172c1",
+    "bundle_sha256": "0dc84187059838221551020b341cc72f114688d6db8f5d1e1886a7b870614df9"
+  },
+  "phone_verification": "pending"
+}

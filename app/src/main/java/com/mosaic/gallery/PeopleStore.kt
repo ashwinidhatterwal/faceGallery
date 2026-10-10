@@ -14,6 +14,19 @@ class PeopleStore(private val faces:FaceStore) {
             db.execSQL("CREATE INDEX relation_pair ON relations(a,b,type,active)");PeopleCorrections.create(db)
         }
     }
+    fun contactHintRejections():Map<GroupRules.Key,Set<String>> = buildMap {
+        db.rawQuery("SELECT uri,ordinal,lookup FROM contact_hint_rejections",null).use{c->while(c.moveToNext()){
+            val key=GroupRules.Key(c.getString(0),c.getInt(1));put(key,get(key).orEmpty()+c.getString(2))
+        }}
+    }
+    fun rejectContactHint(key:GroupRules.Key,lookup:String){
+        require(ContactNames.valid(lookup))
+        val rows=members();val roots=components(rows);val member=rows.firstOrNull{it.key==key}?:return
+        val root=member.person?.let{roots[it]?:it}
+        val keys=if(root==null)setOf(key)else rows.filter{it.person?.let{p->roots[p]?:p}==root}.map{it.key}.toSet()
+        transaction{keys.forEach{db.insertWithOnConflict("contact_hint_rejections",null,ContentValues().apply{put("uri",it.uri);put("ordinal",it.ordinal);put("lookup",lookup)},SQLiteDatabase.CONFLICT_IGNORE)}}
+        PeopleData.changed()
+    }
     private val db get()=faces.writableDatabase
     fun contactReferences()=faces.contactReferences()
     data class Relation(val id:Long,val a:Long,val b:Long,val type:String,val source:String,val active:Boolean,val reason:String)
@@ -173,8 +186,9 @@ class PeopleStore(private val faces:FaceStore) {
         var saved=false
         transaction{
             val group=groups.firstOrNull{id in it.leaves}?:return@transaction
-            val names=names();val vetoes=contactAutomationBlocked();val contacts=contacts(roots)
+            val names=names();val vetoes=contactAutomationBlocked();val contacts=contacts(roots);val rejected=contactHintRejections()
             if(group.leaves.any{it in names || it in vetoes} || contacts[group.id]!=null || rows.any{it.person in group.leaves && it.manual})return@transaction
+            if(rows.filter{it.person in group.leaves}.any{contact.lookup in rejected[it.key].orEmpty()})return@transaction
             val linked=groups.filter{contacts[it.id]?.lookup==contact.lookup}
             if(linked.any{blocked(group.leaves,it.leaves) || group.photos.intersect(it.photos).isNotEmpty()})return@transaction
             db.update("people",ContentValues().apply{put("label",contact.name.trim().take(60));put("contact_lookup",contact.lookup);put("contact_name",contact.name)},"id=?",arrayOf(group.id.toString()))
@@ -187,7 +201,15 @@ class PeopleStore(private val faces:FaceStore) {
         db.rawQuery("SELECT id,contact_lookup,contact_name FROM people WHERE contact_lookup IS NOT NULL ORDER BY name_rank DESC,id",null).use{c->while(c.moveToNext()){val root=roots[c.getLong(0)]?:c.getLong(0);if(root !in this)put(root,ContactNames.Contact(c.getString(1),c.getString(2).orEmpty()))}}
     }
     fun contactKeys(leaves:Set<Long>):Set<String> = buildSet{db.rawQuery("SELECT id,contact_lookup FROM people WHERE contact_lookup IS NOT NULL",null).use{while(it.moveToNext())if(it.getLong(0) in leaves)add(it.getString(1))}}
-    fun contactConflict(a:Set<Long>,b:Set<Long>):Boolean {val first=contactKeys(a);val second=contactKeys(b);return first.isNotEmpty() && second.isNotEmpty() && (first+second).size>1}
+    private fun rejectedContacts(leaves:Set<Long>):Set<String> {
+        if(leaves.isEmpty())return emptySet()
+        return buildSet{db.rawQuery("SELECT DISTINCT r.lookup FROM contact_hint_rejections r JOIN membership m ON m.uri=r.uri AND m.ordinal=r.ordinal WHERE m.person IN (${leaves.joinToString(",")})",null).use{c->while(c.moveToNext())add(c.getString(0))}}
+    }
+    fun contactConflict(a:Set<Long>,b:Set<Long>):Boolean {
+        val first=contactKeys(a);val second=contactKeys(b)
+        return (first.isNotEmpty() && second.isNotEmpty() && (first+second).size>1) ||
+            (second.isNotEmpty() && second.any{it in rejectedContacts(a)}) || (first.isNotEmpty() && first.any{it in rejectedContacts(b)})
+    }
     fun updatePerson(id:Long,choice:ContactNames.Choice,allowRepeated:Boolean=false){
         require(choice.name.trim().isNotEmpty());choice.contact?.let{require(ContactNames.valid(it.lookup)){"Invalid contact link"}}
         transaction{
@@ -195,7 +217,10 @@ class PeopleStore(private val faces:FaceStore) {
             blockContactAutomation(root)
             db.execSQL("UPDATE people SET contact_lookup=NULL,contact_name=NULL WHERE contact_lookup IS NOT NULL AND id IN (${leaves.joinToString(",")})")
             db.update("people",ContentValues().apply{put("label",choice.name.trim().take(60));put("contact_lookup",choice.contact?.lookup);put("contact_name",choice.contact?.name)},"id=?",arrayOf(root.toString()));prioritize(root)
-            choice.contact?.let{contact->val live=capsules().map{it.id}.toSet();contacts().filter{it.key!=root && it.key in live && it.value.lookup==contact.lookup}.keys.forEach{main->merge(main,root,allowRepeated)}}
+            choice.contact?.let{contact->
+                // Explicit confirmation overrides an earlier rejection for this group's faces.
+                db.execSQL("DELETE FROM contact_hint_rejections WHERE lookup=? AND EXISTS(SELECT 1 FROM membership m WHERE m.uri=contact_hint_rejections.uri AND m.ordinal=contact_hint_rejections.ordinal AND m.person IN (${leaves.joinToString(",")}))",arrayOf(contact.lookup))
+                val live=capsules().map{it.id}.toSet();contacts().filter{it.key!=root && it.key in live && it.value.lookup==contact.lookup}.keys.forEach{main->merge(main,root,allowRepeated)}}
         }
     }
     fun nameFace(key:GroupRules.Key,choice:ContactNames.Choice,allowRepeated:Boolean=false){transaction{
@@ -260,5 +285,5 @@ class PeopleStore(private val faces:FaceStore) {
         };return repaired
     }
     private fun contactKeysById()=buildSet<Long>{db.rawQuery("SELECT id FROM people WHERE contact_lookup IS NOT NULL",null).use{while(it.moveToNext())add(it.getLong(0))}}
-    fun reset(){db.delete("identity_assertions",null,null);transaction{db.delete("contact_signatures",null,null);db.delete("contact_matches",null,null);db.delete("contact_face_matches",null,null);db.delete("face_edits",null,null);db.delete("correction_samples",null,null);db.delete("membership",null,null);db.delete("relations",null,null);db.delete("people",null,null)}}
+    fun reset(){db.delete("contact_hint_rejections",null,null);db.delete("identity_assertions",null,null);transaction{db.delete("contact_signatures",null,null);db.delete("contact_matches",null,null);db.delete("contact_face_matches",null,null);db.delete("face_edits",null,null);db.delete("correction_samples",null,null);db.delete("membership",null,null);db.delete("relations",null,null);db.delete("people",null,null)}}
 }

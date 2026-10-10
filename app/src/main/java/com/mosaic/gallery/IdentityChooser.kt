@@ -68,7 +68,7 @@ class IdentityChooser(private val activity:Activity,private val names:PeopleName
             choice.reference?.let{line.addView(crop(references[index],it.member.face),LinearLayout.LayoutParams(dp(52),dp(52)))}
             if(choice.reference==null)crops+=null
             if(choice.contact!=null)line.addView(ImageView(activity).apply{setImageDrawable(GalleryStyle.icon(activity,"personAdd"));contentDescription="Phone contact"},LinearLayout.LayoutParams(dp(32),dp(32)))
-            line.addView(GalleryStyle.text(activity,choice.name,17f).apply{setPadding(dp(12),0,0,0)},LinearLayout.LayoutParams(0,-2,1f));line.addView(ImageView(activity).apply{setImageDrawable(GalleryStyle.icon(activity,"back"));rotation=180f},LinearLayout.LayoutParams(dp(20),dp(20)));root.addView(line,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(8)})
+            line.addView(GalleryStyle.text(activity,choice.name+if(choice.hintContact!=null)"?"else "",17f).apply{setPadding(dp(12),0,0,0)},LinearLayout.LayoutParams(0,-2,1f));line.addView(ImageView(activity).apply{setImageDrawable(GalleryStyle.icon(activity,"back"));rotation=180f},LinearLayout.LayoutParams(dp(20),dp(20)));choice.hintContact?.let{contact->line.addView(GalleryStyle.action(activity,"close","Not ${choice.name}",compact=true){dismiss();apply({it.rejectContactHint(key,contact.lookup)},"Suggestion removed")})};root.addView(line,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(8)})
         }
         val actions=LinearLayout(activity)
         actions.addView(GalleryStyle.button(activity,"Name / contact",true){

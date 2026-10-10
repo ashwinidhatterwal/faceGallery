@@ -124,7 +124,7 @@ object PeopleGrouping {
     /** Reuse unfinished pair evidence across cool-down batches, invalidating when references change. */
     @Synchronized private fun resumable(store:PeopleStore,groups:List<GroupRules.Capsule>,policy:PeopleCalibration.Policy):IdentityComparisonCache {
         var key=(policy.hashCode().toLong()*31+"auto-merge-v2".hashCode())*31+store.relations().hashCode();key=key*31+store.names().hashCode();key=key*31+store.contacts().entries.sortedBy{it.key}.map{it.key to it.value.lookup}.hashCode()
-        key=key*31+store.contactAutomationBlocked().sorted().hashCode()
+        key=key*31+store.contactAutomationBlocked().sorted().hashCode();key=key*31+store.contactHintRejections().hashCode()
         for(group in groups.sortedBy{it.id}){key=key*31+group.id;key=key*31+group.photos.sorted().hashCode();key=key*31+group.leaves.sorted().hashCode();for(ref in group.prototypes){key=key*31+ref.member.key.hashCode();key=key*31+ref.vector.contentHashCode()}}
         if(key!=comparisonKey || comparisons==null){comparisonKey=key;comparisons=IdentityComparisonCache(groups.map{it.id},policy.agreement-policy.groupMargin,store.comparisonCheckpoint(),key)}
         return comparisons!!
@@ -137,17 +137,24 @@ object PeopleGrouping {
         changed=store.repairAssignments(keepGoing)>0 || changed
         val groups=store.capsules().sortedBy{it.id}.toMutableList()
         val policy=store.policy()
+        val rejected=store.contactHintRejections()
+        val contactLinks=store.contacts()
+        val rejectedByLeaf=mutableMapOf<Long,Set<String>>()
+        store.members().forEach{m->m.person?.let{p->rejectedByLeaf[p]=rejectedByLeaf[p].orEmpty()+rejected[m.key].orEmpty()}}
+        fun groupRejections(group:GroupRules.Capsule)=group.leaves.flatMap{rejectedByLeaf[it].orEmpty()}.toSet()
+        fun groupContacts(group:GroupRules.Capsule)=group.leaves.mapNotNull{contactLinks[it]?.lookup}.toSet()
         phase("Matching faces…")
         var referencesChanged=false
         var completed=0;val pending=store.pending();val total=pending.size
         for(member in pending){
             if(!keepGoing()){if(changed)PeopleData.changed();return}
             val vector=store.vector(member.key)?:continue
-            val ranked=groups.mapNotNull{GroupRules.rank(vector,it)}
+            val ranked=groups.filter{g->groupContacts(g).none{it in rejected[member.key].orEmpty()}}.mapNotNull{GroupRules.rank(vector,it)}
             val decision=GroupRules.decide(member,ranked,policy)
             if(!keepGoing()){if(changed)PeopleData.changed();return}
             if(!decision.seed && decision.target==member.person && decision.suggested==member.suggested && decision.status==member.status && decision.reason==member.reason && decision.score==member.score){completed++;progress(completed,total);continue}
             val person=store.record(member,decision);changed=true
+            if(person!=null)rejectedByLeaf[person]=rejectedByLeaf[person].orEmpty()+rejected[member.key].orEmpty()
             if(person!=null)referencesChanged=true
             if(person!=null && member.face.authority=="Anchor"){
                 val old=groups.firstOrNull{decision.target in it.leaves}
@@ -179,6 +186,7 @@ object PeopleGrouping {
         fun allowed(a:GroupRules.Capsule,b:GroupRules.Capsule)=
             (a.leaves+b.leaves).mapNotNull{contacts[it]?.lookup}.toSet().size<=1 &&
             !contactPropagation(a,b) &&
+            groupContacts(a).none{it in groupRejections(b)} && groupContacts(b).none{it in groupRejections(a)} &&
             !nameConflict(a,b) &&
             !negatives.any{(it.a in a.leaves && it.b in b.leaves)||(it.b in a.leaves && it.a in b.leaves)}
         fun join(a:GroupRules.Capsule,b:GroupRules.Capsule,reason:String){

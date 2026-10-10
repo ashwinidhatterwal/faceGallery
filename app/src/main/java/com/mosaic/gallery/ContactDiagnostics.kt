@@ -10,7 +10,7 @@ object ContactDiagnostics {
         val store=PeopleStore(faces);val rows=store.members();val roots=store.components(rows)
         val groups=store.capsules(rows,roots);val links=store.contacts(roots)
         val named=store.established(roots);val blocked=store.contactAutomationBlocked()
-        val floor=maxOf(.72f,store.policy().review)
+        val floor=.5f
         val query=if(ContactRecognition.permitted(context))runCatching{ContactRecognition.photos(context,android.os.CancellationSignal(),manual=true,includeMissing=true)}else null
         val live=query?.getOrDefault(emptyList()).orEmpty()
         val result=JSONArray();val seen=mutableSetOf<String>()

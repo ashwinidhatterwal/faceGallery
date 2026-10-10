@@ -1,0 +1,9 @@
+# Build 51: closest contact suggestions
+
+Contact hint floor is 0.50 cosine similarity (not a probability). Each usable saved contact portrait is ranked against accessible reference faces in unnamed groups; its closest eligible group receives a temporary suggestion. Unassigned individual photo faces can also show tentative contact hints before grouping completes. Existing manually named group suggestions keep their review threshold. A name is only displayed as a hint, never saved by reading the picker or grid. Both views use the shared reader, with rankings computed once per batch from cached vectors.
+
+Tap a suggested name to confirm it. A close control labelled “Not [name]” rejects the contact suggestion. Closing the entire picker leaves suggestions undecided. Rejection records use stable face keys across changes to cover photos and joins; group-wide rejection covers every current member. Reopening or syncing contacts does not erase it, and explicit contact selection remains possible. Changed/deleted source faces naturally clear their old rejection through foreign key cleanup. Reset people clears rejections. Database 10 to 11 adds this table without resetting faces, signatures, names or links.
+
+Existing strong automatic contact linking remains unchanged. Rejected contacts cannot be automatically attached to the same faces or groups. No identity/grouping thresholds, quality gates or recognition model changed. Contact diagnostics reports now use the 0.50 hint floor.
+
+Validation: 460 tests passed with no failures or skipped tests. Release APK/AAB generation, lint (zero errors), static publishing checks, four Python release tests, archive and native alignment checks passed. Local release artifacts are unsigned; build through the existing GitHub signing workflow. Physical phone verification remains pending.

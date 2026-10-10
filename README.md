@@ -1,4 +1,4 @@
-# Face Gallery — Play release candidate 1.0.0-rc9 (49)
+# Face Gallery — Play release candidate 1.0.0-rc11 (51)
 
 Start with [publishing/START-HERE.md](publishing/START-HERE.md). This source includes store artwork, listing copy, policy/declaration drafts and release checks. Physical-device acceptance, public support details, privacy hosting and Play review remain owner steps.
 
@@ -82,7 +82,7 @@ The APK and AAB are signed using **the same key you provided**. On every manual 
 
 - Android Gradle Plugin 8.13.2, Kotlin 2.3.0, Gradle 8.13 and JDK 17.
 - Android API 36 and SDK Build Tools 35.0.0; minimum supported Android API 28 (Android 9).
-- App ID `com.mosaic.gallery`; version code 49; version name `1.0.0-rc9`.
+- App ID `com.mosaic.gallery`; version code 51; version name `1.0.0-rc11`.
 - `./gradlew :app:assembleDebug` makes a local debug APK, which Android signs with the developer machine's local debug key, not your Play upload key.
 
 ## Important release notes
@@ -121,3 +121,11 @@ When manually naming a photo face or a People group with a contact that has no p
 
 ### Contact diagnosis (build 49)
 Settings > Contact diagnostics shows named local portrait status and best cached group similarity. People > Export recognition report now includes pseudonymous contact entries and batch stage checkpoints. New/changed portrait scans record dimensions, face size, focus, landmark count, pose and the failed quality checks. The portrait policy, embedding model, recognition thresholds and retry rules are unchanged. The additive database v10 migration preserves all cached results. Old rejection records explicitly have no individual measurements and are reused. Unnamed groups can suggest cached contacts using their other accessible reference photos even if the currently selected face has no signature.
+
+### Contact portrait rechecks (build 50)
+
+Legacy rejected contact portraits without recorded measurements receive one bounded repair check. Settings → Contact diagnostics → select a contact → Recheck photo retries only that photo. See CONTACT-RECHECK-REVIEW.md. Recognition thresholds and existing groups remain unchanged.
+
+### Closest contact hints (build 51)
+
+Usable cached contact portraits suggest their closest eligible unnamed group at cosine similarity >= 0.50. People and photo face sheets show the suggested name with a question mark. Tap the suggestion to confirm, or its close control to reject it for that group. Rejections persist across refresh, contact sync and changes to the group cover. Existing strong automatic contact-link thresholds remain unchanged; rejected contacts cannot be automatically attached to those faces. Gallery grouping, portrait quality gates and cached signature reuse are unchanged.

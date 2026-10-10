@@ -5,7 +5,7 @@ import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class FaceStore(private val context:Context,private val now:()->Long=System::currentTimeMillis):SQLiteOpenHelper(context,"faces.db",null,10),java.io.Closeable{
+class FaceStore(private val context:Context,private val now:()->Long=System::currentTimeMillis):SQLiteOpenHelper(context,"faces.db",null,11),java.io.Closeable{
     fun contactReferences()=ContactRecognition.references(context,readableDatabase)
     companion object{
         const val MODEL="mlkit-16.1.7-accurate-1600-quality1"
@@ -16,7 +16,7 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
     override fun onCreate(db:SQLiteDatabase){
         db.execSQL("CREATE TABLE photos(uri TEXT PRIMARY KEY,fingerprint TEXT NOT NULL,model TEXT NOT NULL,status TEXT NOT NULL,error TEXT)")
         db.execSQL("CREATE TABLE faces(uri TEXT NOT NULL REFERENCES photos(uri) ON DELETE CASCADE,ordinal INTEGER NOT NULL,l REAL,t REAL,r REAL,b REAL,yaw REAL,pitch REAL,roll REAL,sharpness REAL,score REAL,authority TEXT,landmarks BLOB,PRIMARY KEY(uri,ordinal))")
-        createEmbeddings(db);PeopleStore.create(db);createRetries(db);createDurable(db);ContactRecognition.create(db);PeopleData.changed()
+        createEmbeddings(db);PeopleStore.create(db);createRetries(db);createDurable(db);ContactRecognition.create(db);createContactHints(db);PeopleData.changed()
     }
     override fun onUpgrade(db:SQLiteDatabase,oldVersion:Int,newVersion:Int){
         if(oldVersion<2){db.execSQL("ALTER TABLE faces ADD COLUMN landmarks BLOB");createEmbeddings(db)}
@@ -39,6 +39,7 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
             val hasDetail=db.rawQuery("PRAGMA table_info(contact_signatures)",null).use{c->var found=false;while(c.moveToNext())if(c.getString(1)=="detail")found=true;found}
             if(!hasDetail)db.execSQL("ALTER TABLE contact_signatures ADD COLUMN detail TEXT NOT NULL DEFAULT ''")
         }
+        if(oldVersion<11)createContactHints(db)
     }
     private fun createDurable(db:SQLiteDatabase){
         db.execSQL("CREATE TABLE IF NOT EXISTS operation_retries(uri TEXT NOT NULL,ordinal INTEGER NOT NULL,phase TEXT NOT NULL,fingerprint TEXT NOT NULL,model TEXT NOT NULL,attempts INTEGER NOT NULL,next_time INTEGER NOT NULL,PRIMARY KEY(uri,ordinal,phase))")
@@ -83,6 +84,7 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
     private fun createRetries(db:SQLiteDatabase){db.execSQL("CREATE TABLE IF NOT EXISTS signature_retries(uri TEXT NOT NULL,ordinal INTEGER NOT NULL,model TEXT NOT NULL,PRIMARY KEY(uri,ordinal),FOREIGN KEY(uri,ordinal) REFERENCES faces(uri,ordinal) ON DELETE CASCADE)")}
     fun needsRefinement(key:GroupRules.Key)=retryAllowed(key.uri,key.ordinal,"refine") && readableDatabase.rawQuery("SELECT 1 FROM signature_retries WHERE uri=? AND ordinal=? AND model=?",arrayOf(key.uri,key.ordinal.toString(),"hq1-${FaceVectors.MODEL}")).use{!it.moveToFirst()}
     fun refined(key:GroupRules.Key){writableDatabase.delete("operation_retries","uri=? AND ordinal=? AND phase='refine'",arrayOf(key.uri,key.ordinal.toString()));writableDatabase.insertWithOnConflict("signature_retries",null,ContentValues().apply{put("uri",key.uri);put("ordinal",key.ordinal);put("model","hq1-${FaceVectors.MODEL}")},SQLiteDatabase.CONFLICT_REPLACE)}
+    private fun createContactHints(db:SQLiteDatabase){db.execSQL("CREATE TABLE IF NOT EXISTS contact_hint_rejections(uri TEXT NOT NULL,ordinal INTEGER NOT NULL,lookup TEXT NOT NULL,PRIMARY KEY(uri,ordinal,lookup),FOREIGN KEY(uri,ordinal) REFERENCES faces(uri,ordinal) ON DELETE CASCADE)")}
     private fun createEmbeddings(db:SQLiteDatabase){
         db.execSQL("CREATE TABLE embeddings(uri TEXT NOT NULL,ordinal INTEGER NOT NULL,model TEXT NOT NULL,status TEXT NOT NULL,vector BLOB,error TEXT,PRIMARY KEY(uri,ordinal),FOREIGN KEY(uri,ordinal) REFERENCES faces(uri,ordinal) ON DELETE CASCADE)")
         db.execSQL("CREATE INDEX embedding_state ON embeddings(model,status)")

@@ -2,7 +2,7 @@ package com.mosaic.gallery
 
 /** Suggestions require confirmation. Saved contact portraits never become gallery media. */
 object IdentitySuggestions {
-    data class Choice(val id:Long,val name:String,val reference:GroupRules.Prototype?,val score:Float,val sharedPhotos:Set<String>,val contact:ContactNames.Contact?=null)
+    data class Choice(val id:Long,val name:String,val reference:GroupRules.Prototype?,val score:Float,val sharedPhotos:Set<String>,val contact:ContactNames.Contact?=null,val hintContact:ContactNames.Contact?=contact)
     data class Result(val member:GroupRules.Member,val person:Long?,val name:String,val choices:List<Choice>,val suggestions:List<Choice>)
     fun read(store:PeopleStore,key:GroupRules.Key,accessible:Set<String>,allowChange:Boolean=false):Result? = store.snapshot{Reader(store,accessible).read(key,allowChange)}
     fun photo(store:PeopleStore,uri:String,accessible:Set<String>,suggestions:Boolean=true):List<PhotoPeople.Face> {
@@ -30,14 +30,24 @@ object IdentitySuggestions {
         val references by lazy{store.contactReferences()}
         val negatives=store.relations().filter{it.active && it.type=="cannot" && it.source=="user"}
         val cutoff=store.policy().review
+        val rejected=store.contactHintRejections()
+        private data class Target(val person:Long?,val key:GroupRules.Key?,val vectors:List<FloatArray>)
+        // Compute once per batch: each contact proposes only its closest unnamed group.
+        private val contactTargets by lazy {
+            val targets=groups.filter{it.id !in established}.map{g->Target(g.id,null,g.prototypes.filter{it.member.key.uri in accessible}.map{it.vector})}
+            references.associate{ref->ref.contact.lookup to targets.mapNotNull{t->t.vectors.map{FaceVectors.cosine(it,ref.vector)}.filter{it.isFinite()}.maxOrNull()?.let{t to it}}
+                .sortedWith(compareByDescending<Pair<Target,Float>>{it.second}.thenBy{it.first.person?:Long.MAX_VALUE}.thenBy{it.first.key?.uri.orEmpty()}.thenBy{it.first.key?.ordinal?:0}).firstOrNull()?.takeIf{it.second>=.5f}}
+        }
         fun read(key:GroupRules.Key,allowChange:Boolean,suggestions:Boolean=true):Result? {
             val member=rows.firstOrNull{it.key==key && it.key.uri in accessible}?:return null
             val person=member.person?.takeIf{member.status=="known"}?.let{roots[it]?:it}
             if(!allowChange && person in established)return Result(member,person,labels[person].orEmpty(),emptyList(),emptyList())
             if(!suggestions || member.status=="excluded")return Result(member,null,"",emptyList(),emptyList())
             val source=groups.firstOrNull{it.id==person}
+            val sourceKeys=if(source==null || allowChange)setOf(key)else rows.filter{it.person in source.leaves}.map{it.key}.toSet()
+            fun veto(lookup:String)=sourceKeys.any{lookup in rejected[it].orEmpty()}
             val vector=if(member.ready)store.vector(key)else null
-            val choices=groups.filter{target->target.id in established && target.id!=person && target.photos.any{it in accessible} &&
+            val choices=groups.filter{target->target.id in established && target.id!=person && contacts[target.id]?.lookup?.let{!veto(it)}!=false && target.photos.any{it in accessible} &&
                 (allowChange || source==null || (!store.contactConflict(source.leaves,target.leaves) &&
                     negatives.none{(it.a in source.leaves && it.b in target.leaves)||(it.b in source.leaves && it.a in target.leaves)}))
             }.map{target->
@@ -51,12 +61,15 @@ object IdentitySuggestions {
             if(contactEvidence.isNotEmpty()){
                 for(ref in references){
                     val score=contactEvidence.maxOf{FaceVectors.cosine(it,ref.vector)}
-                    // Contact portraits have less gallery context: keep a higher suggestion floor.
-                    if(!score.isFinite() || score<maxOf(.72f,cutoff))continue
+                    if(!score.isFinite() || score<.5f || veto(ref.contact.lookup))continue
+                    if(!allowChange && person!=null){
+                        val target=contactTargets[ref.contact.lookup]?.first?:continue
+                        if(target.person!=person)continue
+                    }
                     val linked=contacts.filterValues{it.lookup==ref.contact.lookup}.keys
                     if(person in linked)continue
                     val index=choices.indexOfFirst{it.id in linked}
-                    if(index>=0){val old=choices[index];choices[index]=old.copy(score=maxOf(old.score,score));continue}
+                    if(index>=0){val old=choices[index];choices[index]=old.copy(score=maxOf(old.score,score),hintContact=ref.contact);continue}
                     // A blocked or inaccessible linked folder must not reappear as a raw contact.
                     if(linked.isNotEmpty())continue
                     if(!allowChange && contacts[person]?.lookup?.let{it!=ref.contact.lookup}==true)continue
@@ -64,7 +77,7 @@ object IdentitySuggestions {
                 }
             }
             val sorted=choices.sortedWith(compareByDescending<Choice>{it.score}.thenBy{it.name})
-            return Result(member,null,"",sorted,sorted.filter{it.score>=cutoff}.take(3))
+            return Result(member,null,"",sorted,sorted.filter{it.score>=if(it.hintContact!=null).5f else cutoff}.take(3))
         }
     }
 }

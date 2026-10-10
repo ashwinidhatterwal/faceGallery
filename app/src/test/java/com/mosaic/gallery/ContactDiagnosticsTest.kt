@@ -54,8 +54,30 @@ class ContactDiagnosticsTest {
     }}
     @Test fun versionNineMigrationPreservesCachedResults(){
         FaceStore(app).use{f->ContactRecognition.scan(f,listOf(photo),{true},read={byteArrayOf(1)},infer={vector});f.writableDatabase.execSQL("ALTER TABLE contact_signatures RENAME TO saved_contact_signatures");f.writableDatabase.execSQL("CREATE TABLE contact_signatures AS SELECT lookup,name,stamp,digest,model,status,vector,attempts,next_time,reason FROM saved_contact_signatures");f.writableDatabase.execSQL("DROP TABLE saved_contact_signatures");f.writableDatabase.version=9}
-        FaceStore(app).use{f->val cached=ContactRecognition.cached(f,contact.lookup)!!;assertEquals("done",cached.status);assertEquals("",cached.detail);assertFalse(ContactRecognition.due(cached,photo,1));assertEquals(10,f.readableDatabase.version)}
+        FaceStore(app).use{f->val cached=ContactRecognition.cached(f,contact.lookup)!!;assertEquals("done",cached.status);assertEquals("",cached.detail);assertFalse(ContactRecognition.due(cached,photo,1));assertEquals(11,f.readableDatabase.version)}
     }
+    @Test fun legacyRejectedPortraitGetsOnlyOneRepairEvenWhenPixelsAreIdentical(){FaceStore(app).use{f->
+        ContactRecognition.scan(f,listOf(photo),{true},read={byteArrayOf(1)},infer={throw ContactRecognition.PortraitRejected("portrait_quality_or_landmarks")})
+        var calls=0
+        repeat(3){ContactRecognition.scan(f,listOf(photo),{true},read={byteArrayOf(1)},infer={calls++;throw ContactRecognition.PortraitRejected("portrait_quality_or_landmarks","{\"failed_checks\":[\"blurred_face\"]}")},repairLegacy=true)}
+        assertEquals(1,calls);assertTrue(ContactRecognition.cached(f,contact.lookup)!!.detail.contains("blurred_face"))
+    }}
+    @Test fun legacyRepairDoesNotReencodeAcceptedPortraits(){FaceStore(app).use{f->
+        ContactRecognition.scan(f,listOf(photo),{true},read={byteArrayOf(1)},infer={vector})
+        ContactRecognition.scan(f,listOf(photo),{true},read={error("Accepted cache must be reused")},infer={error("Accepted cache must be reused")},repairLegacy=true)
+        assertEquals("done",ContactRecognition.cached(f,contact.lookup)!!.status)
+    }}
+    @Test fun explicitRecheckProcessesOnlySelectedPortraitAndPreservesCacheOnReadFailure(){FaceStore(app).use{f->
+        val other=photo.copy(contact=contact.copy(lookup="content://com.android.contacts/contacts/lookup/other/124"))
+        ContactRecognition.scan(f,listOf(photo,other),{true},read={byteArrayOf(1)},infer={vector})
+        val saved=ContactRecognition.cached(f,contact.lookup)!!
+        try {ContactRecognition.scan(f,listOf(photo),{true},read={error("Provider offline")},infer={error("Must not encode")},force=true);fail("Expected read failure")}catch(_:IllegalStateException){}
+        assertEquals(saved.digest,ContactRecognition.cached(f,contact.lookup)!!.digest)
+        assertEquals("done",ContactRecognition.cached(f,contact.lookup)!!.status)
+        var calls=0
+        ContactRecognition.scan(f,listOf(photo),{true},read={byteArrayOf(1)},infer={calls++;vector},detail={"{\"failed_checks\":[]}"},force=true)
+        assertEquals(1,calls);assertEquals("",ContactRecognition.cached(f,other.contact.lookup)!!.detail)
+    }}
     @Test fun providerPhotoAvailabilityIsReportedWithoutExportingNames(){
         val provider=object:android.content.ContentProvider(){
             override fun onCreate()=true

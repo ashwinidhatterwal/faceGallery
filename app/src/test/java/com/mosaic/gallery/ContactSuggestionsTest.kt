@@ -26,7 +26,7 @@ class ContactSuggestionsTest {
     @Test fun manuallyNamedAndContactSuggestionsShareRanking(){FaceStore(app).use{f->add(f,1);add(f,2,.75f);val p=PeopleStore(f);val named=seed(p,2);p.rename(named,"My friend");portrait(f,cos=.8f);val data=IdentitySuggestions.read(p,key(1),setOf(key(1).uri,key(2).uri))!!;assertEquals(listOf("Contact 1","My friend"),data.suggestions.map{it.name});assertEquals(named,data.suggestions.last().id)}}
     @Test fun linkedContactIsOneGroupChoiceAndKeepsCustomName(){FaceStore(app).use{f->add(f,1);add(f,2,.75f);val p=PeopleStore(f);val named=seed(p,2);p.updatePerson(named,ContactNames.Choice("Papa",contact()));portrait(f,cos=.8f);val data=IdentitySuggestions.read(p,key(1),setOf(key(1).uri,key(2).uri))!!;assertEquals(1,data.suggestions.size);assertEquals(named,data.suggestions.single().id);assertEquals("Papa",data.suggestions.single().name);assertNull(data.suggestions.single().contact)}}
     @Test fun explicitDifferentPersonCannotReappearAsContact(){FaceStore(app).use{f->add(f,1);add(f,2);val p=PeopleStore(f);val a=seed(p,1);val b=seed(p,2);p.updatePerson(b,ContactNames.Choice("Papa",contact()));p.reject(a,b);portrait(f);assertTrue(IdentitySuggestions.read(p,key(1),setOf(key(1).uri,key(2).uri))!!.suggestions.isEmpty())}}
-    @Test fun revokedPermissionAndWeakPortraitDoNotSuggestContacts(){FaceStore(app).use{f->add(f,1);portrait(f,cos=.71f);val p=PeopleStore(f);assertTrue(IdentitySuggestions.read(p,key(1),setOf(key(1).uri))!!.suggestions.isEmpty());portrait(f,2,.8f);Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_CONTACTS);assertTrue(IdentitySuggestions.read(p,key(1),setOf(key(1).uri))!!.suggestions.isEmpty())}}
+    @Test fun revokedPermissionAndWeakPortraitDoNotSuggestContacts(){FaceStore(app).use{f->add(f,1);portrait(f,cos=.49f);val p=PeopleStore(f);assertTrue(IdentitySuggestions.read(p,key(1),setOf(key(1).uri))!!.suggestions.isEmpty());portrait(f,2,.8f);Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_CONTACTS);assertTrue(IdentitySuggestions.read(p,key(1),setOf(key(1).uri))!!.suggestions.isEmpty())}}
     @Test fun existingNamedGroupIsNeverPromptedOrRenamed(){FaceStore(app).use{f->add(f,1);val p=PeopleStore(f);val named=seed(p,1);p.rename(named,"My name");portrait(f);val data=IdentitySuggestions.read(p,key(1),setOf(key(1).uri))!!;assertEquals(named,data.person);assertTrue(data.suggestions.isEmpty());assertEquals("My name",p.label(named))}}
     @Test fun excludedFacesHaveNoSuggestions(){FaceStore(app).use{f->add(f,1);portrait(f);val p=PeopleStore(f);p.correct(setOf(key(1)),exclude=true);assertTrue(IdentitySuggestions.read(p,key(1),setOf(key(1).uri))!!.suggestions.isEmpty())}}
     @Test fun acceptingContactSuggestionNamesWholeTemporaryGroup(){FaceStore(app).use{f->add(f,1);add(f,2);val p=PeopleStore(f);p.correct(setOf(key(1),key(2)),create=true);portrait(f);val choice=IdentitySuggestions.read(p,key(1),setOf(key(1).uri,key(2).uri))!!.suggestions.single();p.nameFace(key(1),ContactNames.Choice(choice.name,choice.contact));assertEquals(1,p.capsules().size);assertEquals(contact(),p.contacts().values.single());assertEquals("Contact 1",p.labels(p.components()).values.single())}}
@@ -67,6 +67,52 @@ class ContactSuggestionsTest {
         assertEquals(setOf("Contact 1?","Alice","Person $unmatched"),titles)
         FaceStore(app).use{f->assertEquals(listOf("Alice"),PeopleStore(f).names().values.toList());assertTrue(PeopleStore(f).contacts().isEmpty())}
         c.destroy()
+    }
+    @Test fun halfSimilarityHintIsTemporaryAndAppearsInBothViews(){FaceStore(app).use{f->
+        add(f,1);val p=PeopleStore(f);val id=seed(p,1);portrait(f,cos=.5f)
+        val visible=setOf(key(1).uri)
+        assertEquals("Contact 1",IdentitySuggestions.profileNames(p,mapOf(id to key(1)),visible)[id])
+        assertEquals("Contact 1",IdentitySuggestions.photo(p,key(1).uri,visible).single().suggestedName)
+        assertTrue(p.names().isEmpty());assertTrue(p.contacts().isEmpty())
+    }}
+    @Test fun eachContactSuggestsOnlyItsClosestUnnamedGroup(){FaceStore(app).use{f->
+        add(f,1);add(f,2,-.1f);val p=PeopleStore(f);val a=seed(p,1);val b=seed(p,2);portrait(f,cos=.6f)
+        // Contact is closer to group 2 (.736) than group 1 (.600).
+        val visible=setOf(key(1).uri,key(2).uri)
+        assertEquals(mapOf(b to "Contact 1"),IdentitySuggestions.profileNames(p,mapOf(a to key(1),b to key(2)),visible))
+        assertTrue(IdentitySuggestions.read(p,key(1),visible)!!.suggestions.isEmpty())
+    }}
+    @Test fun rejectedContactHintStaysHiddenAcrossReopenSyncAndAnotherCover(){
+        var id=0L
+        FaceStore(app).use{f->add(f,1);add(f,2);val p=PeopleStore(f);p.correct(setOf(key(1),key(2)),create=true);id=p.members().first().person!!;portrait(f,cos=.6f);p.rejectContactHint(key(1),contact().lookup)}
+        FaceStore(app).use{f->val p=PeopleStore(f);val visible=setOf(key(1).uri,key(2).uri);portrait(f,cos=.6f)
+            assertTrue(IdentitySuggestions.profileNames(p,mapOf(id to key(2)),visible).isEmpty())
+            assertTrue(IdentitySuggestions.photo(p,key(2).uri,visible).single().suggestedName==null)
+            assertFalse(p.autoContact(id,contact()));assertTrue(p.contacts().isEmpty())
+            p.nameFace(key(2),ContactNames.Choice(contact().name,contact()));assertEquals(contact(),p.contacts().values.single())
+        }
+    }
+    @Test fun rejectedUngroupedContactDoesNotGetAutomaticallySeeded(){FaceStore(app).use{f->
+        add(f,1);val p=PeopleStore(f);portrait(f,cos=1f);p.rejectContactHint(key(1),contact().lookup)
+        assertEquals(0,ContactRecognition.match(f,listOf(ContactRecognition.Reference(contact(),vector())),{true}));assertTrue(p.capsules().isEmpty());assertTrue(p.contacts().isEmpty())
+    }}
+    @Test fun rejectedContactCannotReturnThroughAutomaticMergeAndConfirmationOverridesIt(){FaceStore(app).use{f->
+        add(f,1);add(f,2);val p=PeopleStore(f);val a=seed(p,1);val b=seed(p,2)
+        p.rejectContactHint(key(1),contact().lookup);p.updatePerson(b,ContactNames.Choice("Contact 1",contact()))
+        assertTrue(p.contactConflict(setOf(a),setOf(b)))
+        p.updatePerson(a,ContactNames.Choice("Contact 1",contact()))
+        assertEquals(1,p.capsules().size);assertTrue(p.contactHintRejections().isEmpty())
+    }}
+    @Test fun automaticGroupingCannotPropagateARejectedContactName(){FaceStore(app).use{f->
+        add(f,1);add(f,2);val p=PeopleStore(f);seed(p,1);val b=seed(p,2)
+        p.rejectContactHint(key(1),contact().lookup);p.updatePerson(b,ContactNames.Choice("Contact 1",contact()))
+        PeopleGrouping.run(p,{true},reuseComparisons=true)
+        assertEquals(2,p.capsules().size);assertEquals(1,p.contacts().size)
+        assertNull(p.contacts()[p.components()[p.members().first{it.key==key(1)}.person]])
+    }}
+    @Test fun versionTenMigrationPreservesPortraitsAndGroups(){
+        FaceStore(app).use{f->add(f,1);seed(PeopleStore(f),1);portrait(f);f.writableDatabase.execSQL("DROP TABLE contact_hint_rejections");f.writableDatabase.version=10}
+        FaceStore(app).use{f->val p=PeopleStore(f);assertEquals(11,f.readableDatabase.version);assertEquals(1,p.capsules().size);assertEquals("done",ContactRecognition.cached(f,contact().lookup)!!.status);p.rejectContactHint(key(1),contact().lookup);assertTrue(p.contactHintRejections().isNotEmpty())}
     }
     private class EmptyContacts:android.content.ContentProvider(){override fun onCreate()=true;override fun query(uri:Uri,projection:Array<out String>?,selection:String?,args:Array<out String>?,sort:String?)=android.database.MatrixCursor(projection?:emptyArray());override fun getType(uri:Uri):String?=null;override fun insert(uri:Uri,values:android.content.ContentValues?):Uri?=null;override fun delete(uri:Uri,selection:String?,args:Array<out String>?)=0;override fun update(uri:Uri,values:android.content.ContentValues?,selection:String?,args:Array<out String>?)=0}
 }

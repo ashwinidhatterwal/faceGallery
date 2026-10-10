@@ -1,0 +1,23 @@
+{
+  "versionCode": 50,
+  "versionName": "1.0.0-rc10",
+  "tests": {
+    "tests": 453,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint": {
+    "Error": 0,
+    "Fatal": 0,
+    "Warning": 144
+  },
+  "release_build": "passed",
+  "static_publishing_checks": "passed",
+  "python_release_tests": 4,
+  "release_archives_and_native_alignment": "passed",
+  "signed": false,
+  "phone_portrait_recheck": "not performed; requires on-device contact photo",
+  "apk_sha256": "0a465fceeb16f19ecbb5d7dfc8cb3a995aa9228ad8fd643ce0c956bf4b1d5045",
+  "aab_sha256": "02fa897c2ea5ce5267e3b111cae7a7ab35a8f6d5d59f3dbc4bfd870ed344fe02"
+}
