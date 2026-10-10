@@ -15,3 +15,21 @@ Use the Play-installed signed release. Record device/Android version, build code
 - Release compatibility: Android 9 and Android 16 if available, a 16 KB device/emulator, both day/night themes, text scaling; Play pre-launch report has no unresolved crashes/ANRs/blockers.
 
 Production sign-off is pending until these checks have real results. Automated evidence is separately recorded in `validation/play-preparation.json`.
+
+## Build 46: suggestions and contact sync
+
+- With a similar but uncertain contact portrait, open an unnamed face from People and from a photo's people panel. A name suggestion appears; opening/dismissing the picker must not name or merge anything.
+- Confirm a contact suggestion. Check its name/contact on the group, then reopen the app and check it persists.
+- Check that a manually named similar group appears too, and an already contact-linked group has only one suggestion under its saved name.
+- Explicitly separate two people. Check the rejected group/contact is not suggested again for ordinary identification.
+- Run Settings > Sync contact photos twice without edits: the second check should reuse signatures and comparisons. Add/change a contact portrait and sync again: only changed portrait data should be encoded.
+- Pause background recognition, run manual contact sync, then confirm background recognition remains paused. Repeat with automatic contact matching off. Consent/permission are still required.
+- Cancel sync or leave the screen midway, then run it again. Completed portraits should be reused; unrelated gallery work and manual corrections must remain intact.
+- Check low battery, battery saver and a hot phone pause manual sync with a clear message. Automatic scheduling should remain as configured.
+
+## Build 47: People grid labels
+
+- Unnamed profiles with a suitable contact/manual-group match show `Suggested name?` below the face; saved names have no question mark.
+- Tap a suggested profile and confirm it. The grid label should become its saved name without `?` after the update. Dismissing the picker must keep it uncertain.
+- Switch away/back and search by the suggested name. The label and thumbnails should remain stable; unchanged portraits must not be encoded again.
+- Change/remove a contact photo or saved name and run the applicable sync. Check suggestions update after the source evidence changes.

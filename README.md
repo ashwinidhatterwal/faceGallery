@@ -1,6 +1,20 @@
-# Face Gallery — Play release candidate 1.0.0-rc5 (45)
+# Face Gallery — Play release candidate 1.0.0-rc7 (47)
 
 Start with [publishing/START-HERE.md](publishing/START-HERE.md). This source includes store artwork, listing copy, policy/declaration drafts and release checks. Physical-device acceptance, public support details, privacy hosting and Play review remain owner steps.
+
+## People grid suggested labels — 1.0.0-rc7
+
+Unnamed profiles in the People grid show their best suggested name followed by `?`, using the same contact/manual-group suggestions as the photo swipe-up panel. Saved names keep their plain labels; profiles without a suitable suggestion keep their Person label. Tapping an uncertain profile opens the identity picker for confirmation. Suggestions do not save names or merge groups.
+
+Profile suggestions are computed in a batch on the existing worker and retained in the People revision/media/access cache. Switching sections and typing a search reuse those labels without portrait inference or graph writes. Contact/signature/name changes invalidate the cache through the existing revisions.
+
+## Suggested names and manual contact sync — 1.0.0-rc6
+
+Uncertain faces can suggest up to three names from manually named gallery groups and cached contact portraits. The photo's people panel shows the best suggested name with a question mark; tap an unnamed/temporary face in that panel or People to open the shared “Who is this?” picker. Suggestions do not name, merge or promote a group until you confirm them. Contact-linked gallery groups appear once under their saved name. Explicit separations, conflicting contact links, unavailable gallery references and excluded faces are respected. Contacts without a usable portrait cannot provide a face-based suggestion.
+
+**Settings > Sync contact photos**, also available in the People menu, performs a cancellable contact-only check. It uses the existing database writer lock, portrait/signature caches, comparison caches, retries and battery/thermal gates. It can run while automatic recognition or automatic contact matching is paused, provided recognition consent and contacts permission remain granted. It never switches automatic processing on/off, clears gallery recognition or forces unchanged portraits through inference. Leaving the screen cancels the visible check; committed results remain cached. Background schedules remain in place. A completed check updates the shared contact checkpoint so automatic work can reuse it.
+
+No model change or database migration is introduced in build 46. Existing photos, signatures, saved names, contacts and corrections are preserved. The strict automatic naming thresholds remain unchanged; similarity suggestions require your confirmation.
 
 ## Contact portrait recovery — 1.0.0-rc5
 
@@ -68,7 +82,7 @@ The APK and AAB are signed using **the same key you provided**. On every manual 
 
 - Android Gradle Plugin 8.13.2, Kotlin 2.3.0, Gradle 8.13 and JDK 17.
 - Android API 36 and SDK Build Tools 35.0.0; minimum supported Android API 28 (Android 9).
-- App ID `com.mosaic.gallery`; version code 45; version name `1.0.0-rc5`.
+- App ID `com.mosaic.gallery`; version code 47; version name `1.0.0-rc7`.
 - `./gradlew :app:assembleDebug` makes a local debug APK, which Android signs with the developer machine's local debug key, not your Play upload key.
 
 ## Important release notes

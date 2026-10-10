@@ -6,6 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
 class FaceStore(private val context:Context,private val now:()->Long=System::currentTimeMillis):SQLiteOpenHelper(context,"faces.db",null,9),java.io.Closeable{
+    fun contactReferences()=ContactRecognition.references(context,readableDatabase)
     companion object{
         const val MODEL="mlkit-16.1.7-accurate-1600-quality1"
         fun fingerprint(photo:PhotoRecord)="${photo.modifiedMillis}:${photo.sizeBytes}:${photo.width}:${photo.height}:${photo.dateTakenMillis}"

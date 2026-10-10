@@ -90,8 +90,12 @@ class PeopleActivity:Activity(){
                 faceStore.snapshot{
                     signal.throwIfCanceled();val valid=photos.map{it.uri.toString()}.toSet()-faceStore.pending(photos).map{it.uri.toString()}.toSet()
                     val members=store.members().filter{it.key.uri in valid};val roots=store.components(members);val labels=store.labels(roots);val capsules=store.capsules(members,roots);val contacts=store.contacts(roots)
+                    val established=store.established(roots)
                     val provisional=IdentityEvidence.provisional(capsules,members,store.names().keys+contacts.keys)
-                    ViewData(members,roots,labels,store.relations(),photoMap,if(duplicates)DuplicateReview.find(capsules,store.relations(),policy=store.policy(),keepGoing=keepGoing)else emptyList(),store.canUndo(),store.policy(),faceStore.summary(),faceStore.signatureSummary(),contacts,store.established(roots),provisional,"")
+                    val covers=if(duplicates)emptyMap()else members.filter{it.status=="known" && it.person!=null}.groupBy{roots[it.person]?:it.person!!}
+                        .filterKeys{it !in established}.mapValues{(_,rows)->rows.maxBy{it.face.score}.key}
+                    val suggestedNames=IdentitySuggestions.profileNames(store,covers,valid){signal.throwIfCanceled();keepGoing()}
+                    ViewData(members,roots,labels,store.relations(),photoMap,if(duplicates)DuplicateReview.find(capsules,store.relations(),policy=store.policy(),keepGoing=keepGoing)else emptyList(),store.canUndo(),store.policy(),faceStore.summary(),faceStore.signatureSummary(),contacts,established,provisional,"",suggestedNames)
                 }
             }
         }
@@ -124,7 +128,7 @@ class PeopleActivity:Activity(){
                     duplicates->data.suggestions.mapNotNull{pair->val a=groups[pair.a]?.maxByOrNull{it.face.score};val b=groups[pair.b]?.maxByOrNull{it.face.score};if(a==null || b==null)null else Card("pair:${pair.a}:${pair.b}",a,data.photos[a.key.uri],"${labels[pair.a]} + ${labels[pair.b]}",pair.reason,pair.a,b,data.photos[b.key.uri],pair.b)}
                     review->rows.filter{it.status!="known" || (graph[it.person]?:it.person) in data.provisional}.map{member->Card("${member.key.uri}:${member.key.ordinal}",member,data.photos[member.key.uri],if(member.status=="tentative")"Tentative"else"Unknown",member.reason,null)}
                     groupId!=null->groups[groupId].orEmpty().map{member->Card("${member.key.uri}:${member.key.ordinal}",member,data.photos[member.key.uri],GalleryDates.label(member.time),if(member.face.authority=="Anchor")"Clear"else"Usable",null)}
-                    else->groups.entries.filter{it.key!=(graph[mergeInto]?:mergeInto)}.sortedByDescending{it.value.map{m->m.key.uri}.distinct().size}.map{(id,members)->val cover=members.maxBy{it.face.score};Card("person:$id",cover,data.photos[cover.key.uri],labels[id]?.takeIf{id in established}?:"Person $id","${members.map{it.key.uri}.distinct().size} photos"+(if(contactLinks[id]!=null)" · Linked contact"else""),id)}
+                    else->groups.entries.filter{it.key!=(graph[mergeInto]?:mergeInto)}.sortedByDescending{it.value.map{m->m.key.uri}.distinct().size}.map{(id,members)->val cover=members.maxBy{it.face.score};Card("person:$id",cover,data.photos[cover.key.uri],labels[id]?.takeIf{id in established}?:data.suggestedNames[id]?.let{"$it?"}?:"Person $id","${members.map{it.key.uri}.distinct().size} photos"+(if(contactLinks[id]!=null)" · Linked contact"else""),id)}
                 }
                 val oldOrder=profiles.mapIndexed{index,card->card.key to index}.toMap()
                 val items=if(!review && groupId==null && !duplicates && oldOrder.isNotEmpty())nextItems.sortedBy{oldOrder[it.key]?:Int.MAX_VALUE}else nextItems
@@ -136,8 +140,10 @@ class PeopleActivity:Activity(){
                 controls()
 
     }
-    private data class ViewData(val rows:List<GroupRules.Member>,val graph:Map<Long,Long>,val labels:Map<Long,String>,val relations:List<PeopleStore.Relation>,val photos:Map<String,PhotoRecord>,val suggestions:List<DuplicateReview.Suggestion>,val canUndo:Boolean,val policy:PeopleCalibration.Policy,val faces:FaceStore.Summary,val signatures:FaceStore.Signatures,val contacts:Map<Long,ContactNames.Contact>,val established:Set<Long>,val provisional:Set<Long>,val report:String)
+    private data class ViewData(val rows:List<GroupRules.Member>,val graph:Map<Long,Long>,val labels:Map<Long,String>,val relations:List<PeopleStore.Relation>,val photos:Map<String,PhotoRecord>,val suggestions:List<DuplicateReview.Suggestion>,val canUndo:Boolean,val policy:PeopleCalibration.Policy,val faces:FaceStore.Summary,val signatures:FaceStore.Signatures,val contacts:Map<Long,ContactNames.Contact>,val established:Set<Long>,val provisional:Set<Long>,val report:String,val suggestedNames:Map<Long,String> = emptyMap())
     private data class Card(val key:String,val member:GroupRules.Member,val photo:PhotoRecord?,val title:String,val subtitle:String,val person:Long?,val second:GroupRules.Member?=null,val secondPhoto:PhotoRecord?=null,val other:Long?=null)
+    private val contactSync by lazy{ContactPhotoSync(this)}
+    override fun onStop(){contactSync.dismiss();super.onStop()}
     private fun viewMenu(anchor:View){
         val actions=mutableListOf<GalleryMenu.Action>()
         if(folder){
@@ -150,6 +156,7 @@ class PeopleActivity:Activity(){
             if(!duplicates)actions+=GalleryMenu.Action("select","Review similar people"){startActivity(Intent(this,PeopleActivity::class.java).putExtra("duplicates",true))}
         }
         if(canUndo)actions+=GalleryMenu.Action("undo","Undo last correction"){mutate{it.undoCorrection()}}
+        actions+=GalleryMenu.Action("refresh","Sync contact photos"){contactSync.show()}
         actions+=GalleryMenu.Action("settings","Settings"){settings()}
         GalleryMenu.show(this,"People options",actions,anchor)
     }
@@ -230,7 +237,7 @@ class PeopleActivity:Activity(){
     override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){super.onRequestPermissionsResult(requestCode,permissions,grantResults);namesEditor.permissionResult(requestCode)}
     override fun onSaveInstanceState(state:Bundle){state.putString("profileQuery",profileQuery);super.onSaveInstanceState(state)}
     override fun onPause(){editGate.cancel();if(!namesEditor.requestingPermission){identityChooser.dismiss();namesEditor.dismiss()};glide?.finish();active=false;epoch++;refreshing=false;refreshAgain=false;FaceJobs.remove(observer);PeopleData.remove(dataObserver);query?.cancel();super.onPause()}
-    override fun onDestroy(){glide?.detach();worker.shutdown();cards.close();fullPhotos.close();identityChooser.close();namesEditor.close();super.onDestroy()}
+    override fun onDestroy(){contactSync.close();glide?.detach();worker.shutdown();cards.close();fullPhotos.close();identityChooser.close();namesEditor.close();super.onDestroy()}
     private fun dp(value:Int)=GalleryStyle.dp(this,value)
     private inner class Cards:RecyclerView.Adapter<Cards.Holder>(){
         private val images=Executors.newSingleThreadExecutor();private var items=emptyList<Card>();private var closed=false;private val holders=mutableSetOf<Holder>()

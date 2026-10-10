@@ -12,26 +12,7 @@ import java.util.concurrent.Executors
 object PhotoPeople {
     data class Face(val member:GroupRules.Member,val person:Long?,val name:String,val suggestion:GroupRules.Candidate?,val suggestedName:String?,val contact:ContactNames.Contact?=null,val identity:Long?=person)
     fun read(store:PeopleStore,uri:String,accessible:Set<String>,suggestions:Boolean=true):List<Face> =store.snapshot{
-        val all=store.members();val current=all.filter{it.key.uri==uri && it.key.uri in accessible}.sortedBy{it.key.ordinal}
-        if(current.isEmpty())return@snapshot emptyList()
-        val roots=store.components(all);val labels=store.labels(roots);val contacts=store.contacts(roots)
-        val established=store.established(roots)
-        val needsSuggestions=suggestions && established.isNotEmpty() && current.any{row->row.person?.let{roots[it]?:it} !in established}
-        val groups=if(!needsSuggestions)emptyList()else store.capsules(all,roots).map{group->GroupRules.Capsule(group.id,group.leaves,group.photos,group.anchors,group.prototypes.filter{it.member.key.uri in accessible}.toMutableList())}.filter{it.photos.any{p->p in accessible}}
-        val cutoff=store.policy().review;val negatives=store.relations().filter{it.active && it.type=="cannot" && it.source=="user"}
-        current.map { row->
-            val person=row.person?.takeIf{row.status=="known"}?.let{roots[it]?:it};val source=groups.firstOrNull{it.id==person}
-            val vector=if(needsSuggestions && person !in established && row.ready)store.vector(row.key)else null
-            val match=groups.filter{candidate->
-                person !in established && candidate.id in established && candidate.id!=person && (source==null || (
-                    !negatives.any{(it.a in source.leaves && it.b in candidate.leaves)||(it.b in source.leaves && it.a in candidate.leaves)} &&
-                    listOfNotNull(contacts[person]?.lookup,contacts[candidate.id]?.lookup).distinct().size<=1))
-            }.mapNotNull{candidate->
-                val evidence=buildList{vector?.let{GroupRules.rank(it,candidate)?.let(::add)};source?.prototypes?.forEach{GroupRules.rank(it.vector,candidate)?.let(::add)}}
-                evidence.maxByOrNull{it.score}
-            }.filter{it.score>=cutoff}.maxWithOrNull(compareBy<GroupRules.Candidate>{it.score}.thenBy{if(contacts[it.capsule.id]!=null)1 else 0}.thenBy{it.capsule.photos.size})
-            Face(row,person?.takeIf{it in established},person?.takeIf{it in established}?.let{labels[it]}.orEmpty(),match,match?.let{labels[it.capsule.id]?:"Person ${it.capsule.id}"},contacts[person],person)
-        }
+        IdentitySuggestions.photo(store,uri,accessible,suggestions)
     }
 }
 /** Refresh committed identities using the already-decoded photo, without a global regroup. */
@@ -121,7 +102,7 @@ class PhotoPeopleSheet(private val activity:Activity,private val names:PeopleNam
             val label=GalleryStyle.text(activity,if(face.person!=null)face.name else face.suggestedName?.let{"$it?"}?:face.identity?.let{"Person $it"}?:"Name / contact",14f).apply{gravity=Gravity.CENTER;maxLines=2;ellipsize=android.text.TextUtils.TruncateAt.END;minimumHeight=dp(40)};cell.addView(label,LinearLayout.LayoutParams(dp(108),dp(40)))
             fun edit(){editGate.run{names.show(face.name,face.contact,preview=image,face=face.member.face){choice->change({it.nameFace(face.member.key,choice,true)},"Saved")}}}
             fun select(){val group=face.identity
-                if(group!=null && face.member.status=="known"){dismiss();activity.startActivity(Intent(activity,PeopleActivity::class.java).putExtra("person",group))}else chooser.show(face.member.key)}
+                if(face.person!=null && group!=null && face.member.status=="known"){dismiss();activity.startActivity(Intent(activity,PeopleActivity::class.java).putExtra("person",group))}else chooser.show(face.member.key)}
             label.setOnClickListener{select()};cell.setOnClickListener{select()}
             crop.contentDescription=if(face.person!=null)"Open ${face.name} photos"else"Identify this face"
             fun options(){AlertDialog.Builder(activity).setItems(arrayOf("Edit name and contact","Choose person","Not this person","Undo automatic folder join")){_,which->when(which){

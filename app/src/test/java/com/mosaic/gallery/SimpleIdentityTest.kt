@@ -71,7 +71,7 @@ class SimpleIdentityTest {
         IdentityChooser::class.java.getDeclaredMethod("render",GroupRules.Key::class.java,IdentitySuggestions.Result::class.java,android.graphics.Bitmap::class.java,List::class.java,Boolean::class.javaPrimitiveType).apply{isAccessible=true}.invoke(chooser,key(2),data,null,listOf(null),false)
         val dialog=IdentityChooser::class.java.getDeclaredField("dialog").apply{isAccessible=true}.get(chooser) as android.app.AlertDialog
         val root=dialog.findViewById<android.widget.FrameLayout>(android.R.id.custom).getChildAt(0) as android.widget.LinearLayout
-        assertEquals("Who is this?",((root.getChildAt(0) as android.widget.LinearLayout).getChildAt(0) as android.widget.TextView).text.toString());root.getChildAt(3).performClick();FaceStore(app).use{f->assertEquals(3,PeopleStore(f).capsules().single().photos.size)}
+        assertEquals("Who is this?",((root.getChildAt(0) as android.widget.LinearLayout).getChildAt(0) as android.widget.TextView).text.toString());(0 until root.childCount).map{root.getChildAt(it)}.first{it.contentDescription=="Assign to Ankita"}.performClick();FaceStore(app).use{f->assertEquals(3,PeopleStore(f).capsules().single().photos.size)}
         chooser.close();names.close();controller.destroy()
     }
     @Test fun photoCorrectionMovesOnlyTheChosenFaceAndRemainsUndoable(){

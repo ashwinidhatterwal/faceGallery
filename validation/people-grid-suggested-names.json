@@ -1,0 +1,36 @@
+{
+  "release": "1.0.0-rc7",
+  "version_code": 47,
+  "android_tests": {
+    "tests": 439,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "python_verifier_tests": 4,
+  "release_checks": {
+    "model_sha256": "35e2fc149c76efefefbc264fcb5153a467a1b490a82001aba19bd7fc432ec235",
+    "native_libraries": [
+      "face-gallery/app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libface_detector_v2_jni.so",
+      "face-gallery/app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libtensorflowlite_jni.so",
+      "face-gallery/app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libface_detector_v2_jni.so",
+      "face-gallery/app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libtensorflowlite_jni.so",
+      "face-gallery/app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libface_detector_v2_jni.so",
+      "face-gallery/app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libtensorflowlite_jni.so",
+      "face-gallery/app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libface_detector_v2_jni.so",
+      "face-gallery/app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libtensorflowlite_jni.so"
+    ],
+    "signed_required": false,
+    "apk_sha256": "1aab2cd5503259002bc197d18c28c18dd4d81ddf49ded57b4276664cf6b9be12",
+    "bundle_sha256": "7b1aff0a782a1863768fddb14eed9f6e4959359eab9c9b5877b3c8a5578ab2f1"
+  },
+  "lint": {
+    "errors": 0,
+    "fatal": 0,
+    "warnings": 135
+  },
+  "publishing_checks": "passed",
+  "behavior": "Best suggested name with ? in People grid; confirmation required; permanent names and unmatched labels retained",
+  "reuse": "batch graph/reference reads cached with People data; no new portrait inference or graph writes for labels",
+  "phone_acceptance": "see publishing/PHONE-ACCEPTANCE.md"
+}

@@ -46,16 +46,30 @@ class FluidPeopleUiTest {
         val dialog=field(names,"dialog") as android.app.AlertDialog;find(dialog.window!!.decorView,"Save")!!.performClick()
         assertEquals("Ashwini",saved?.name);assertTrue(ContactNames.valid(saved!!.contact!!.lookup));names.close();c.destroy()
     }
-    @Test fun embeddedFacesOpenUnnamedGroupAndNeverRecycleViewerBitmap(){
+    @Test fun embeddedFacesOpenNamedGroupAndNeverRecycleViewerBitmap(){
         val c=Robolectric.buildActivity(Activity::class.java).setup();val host=FrameLayout(c.get());c.get().setContentView(host);layout(host)
         val names=PeopleNames(c.get());var dismissed=false;val sheet=PhotoPeopleSheet(c.get(),names,host){dismissed=true}
         val bitmap=Bitmap.createBitmap(400,300,Bitmap.Config.ARGB_8888);val photo=PhotoRecord(1,Uri.parse("content://fluid/1"),"1.jpg",120000,400,300)
         sheet.show(photo,bitmap);assertNull(field(sheet,"dialog"));assertTrue(sheet.isShowing)
         val member=GroupRules.Member(GroupRules.Key(photo.uri.toString(),0),face,120000,7,null,"known",1f,"",true)
-        val data=listOf(PhotoPeople.Face(member,null,"",null,null,identity=7))
+        val data=listOf(PhotoPeople.Face(member,7,"Saved name",null,null,identity=7))
         PhotoPeopleSheet::class.java.getDeclaredMethod("render",List::class.java).apply{isAccessible=true}.invoke(sheet,data)
         (field(sheet,"row") as LinearLayout).getChildAt(0).performClick()
         assertEquals(7L,Shadows.shadowOf(c.get()).nextStartedActivity.getLongExtra("person",-1));assertTrue(dismissed);assertFalse(bitmap.isRecycled)
+        sheet.close();names.close();bitmap.recycle();c.destroy()
+    }
+    @Test fun unnamedFaceOpensIdentityPickerWithoutNavigatingOrRecyclingPreview(){
+        val c=Robolectric.buildActivity(Activity::class.java).setup();val host=FrameLayout(c.get());c.get().setContentView(host);layout(host)
+        val names=PeopleNames(c.get());val sheet=PhotoPeopleSheet(c.get(),names,host)
+        val bitmap=Bitmap.createBitmap(400,300,Bitmap.Config.ARGB_8888);val photo=PhotoRecord(1,Uri.parse("content://fluid/1"),"1.jpg",120000,400,300)
+        sheet.show(photo,bitmap)
+        val member=GroupRules.Member(GroupRules.Key(photo.uri.toString(),0),face,120000,7,null,"known",1f,"",true)
+        PhotoPeopleSheet::class.java.getDeclaredMethod("render",List::class.java).apply{isAccessible=true}.invoke(sheet,listOf(PhotoPeople.Face(member,null,"",null,"Suggested name",identity=7)))
+        (field(sheet,"row") as LinearLayout).getChildAt(0).performClick()
+        assertNull(Shadows.shadowOf(c.get()).nextStartedActivity);assertTrue(sheet.isShowing);assertFalse(bitmap.isRecycled)
+        val chooser=field(sheet,"chooser") as IdentityChooser
+        val picker=IdentityChooser::class.java.getDeclaredField("dialog").apply{isAccessible=true}.get(chooser) as android.app.AlertDialog
+        assertTrue(picker.isShowing)
         sheet.close();names.close();bitmap.recycle();c.destroy()
     }
     @Test fun cachedPreviewSurvivesGraphRefreshButNeverPermissionOrMediaChanges(){

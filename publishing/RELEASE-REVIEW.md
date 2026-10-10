@@ -1,3 +1,28 @@
+# Face Gallery 1.0.0-rc7 — build 47
+
+- Unnamed People grid profiles now display the best suggested contact/manual-group name with `?` beneath the face. Profiles without a suitable suggestion retain their Person label; saved names remain plain.
+- Tapping an uncertain profile still opens the identity picker for confirmation. These labels do not save names or merge groups.
+- Suggestions use one batch graph/reference reader on the existing worker and remain in the People revision/media/access cache. Switching sections and filtering by name reuse the cached labels. Profile identifiers, photo counts, ordering and thumbnail keys are preserved.
+- No changes to the model, database schema, contact sync or automatic scheduling.
+
+Validation: 439 Android tests and four Python verifier tests passed. Release APK/AAB, integrity/model/manifest/native alignment and publishing checks passed. Lint has zero errors/fatal issues and 135 warnings. Local release outputs are unsigned. See validation/people-grid-suggested-names.json. Phone acceptance remains in PHONE-ACCEPTANCE.md.
+
+## Previous release
+
+# Face Gallery 1.0.0-rc6 — build 46
+
+- Uncertain faces suggest up to three names from saved contact portraits and manually named groups. The photo people panel shows the best suggestion; tapping an unnamed face opens the shared identity picker. Confirmation is required before saving or merging.
+- Contact-linked groups appear once under their saved name. Explicit separations, conflicting contact links, inaccessible references, excluded faces and existing names are respected.
+- Settings and the People menu include Sync contact photos. The cancellable contact-only check shares the writer lock, persistent signatures and comparison caches, bounded retries and battery/temperature gates. It preserves automatic switches and scheduling, including when automatic processing is paused/off.
+- Completed manual signatures remain available when automatic contact matching is off. Turning automatic contact matching off explicitly still clears the contact cache; another manual sync can rebuild it. Revoked consent/contacts permission stops access and automatic processing clears its portrait cache.
+- Updating or clearing contact signatures invalidates cached suggestions. The photo panel reads group data once for all of its faces. No schema/model change or reset of gallery recognition is introduced.
+
+Validation: 436 Android tests and four Python verifier tests passed. Release APK/AAB builds, archive/model/manifest/native alignment checks and static publishing checks passed. Lint: zero errors, zero fatal issues and 135 warnings (mostly existing; the added sync completion button has a localization warning). Local outputs are unsigned. See validation/contact-suggestions-and-sync.json.
+
+Actual portrait matching and long-running background behavior still require phone acceptance. See PHONE-ACCEPTANCE.md. Build a signed update with your existing GitHub workflow/key; do not reset app data.
+
+## Previous release
+
 # Face Gallery 1.0.0-rc5 — build 45
 
 - Fixed rejection of otherwise usable tightly cropped contact portraits. A separate alignment path extends existing edge pixels by at most 30% of the aligned output width; invalid landmarks and excessive truncation remain rejected. Gallery alignment remains strict.

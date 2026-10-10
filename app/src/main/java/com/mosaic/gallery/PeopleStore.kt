@@ -15,6 +15,7 @@ class PeopleStore(private val faces:FaceStore) {
         }
     }
     private val db get()=faces.writableDatabase
+    fun contactReferences()=faces.contactReferences()
     data class Relation(val id:Long,val a:Long,val b:Long,val type:String,val source:String,val active:Boolean,val reason:String)
     fun relations():List<Relation> = buildList{db.rawQuery("SELECT id,a,b,type,source,active,reason FROM relations ORDER BY id",null).use{while(it.moveToNext())add(Relation(it.getLong(0),it.getLong(1),it.getLong(2),it.getString(3),it.getString(4),it.getInt(5)!=0,it.getString(6)))}}
     fun members():List<GroupRules.Member> = buildList {

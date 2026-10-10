@@ -34,7 +34,15 @@ object ContactRecognition {
     private fun prefs(c:Context)=c.getSharedPreferences("contact-recognition",0)
     fun enabled(c:Context)=prefs(c).getBoolean("enabled",true)
     fun allowed(c:Context)=c.checkSelfPermission(Manifest.permission.READ_CONTACTS)==PackageManager.PERMISSION_GRANTED
-    fun available(c:Context)=RecognitionConsent.allowed(c) && enabled(c) && allowed(c)
+    fun permitted(c:Context)=RecognitionConsent.allowed(c) && allowed(c)
+    fun available(c:Context)=permitted(c) && enabled(c)
+    /** Read saved signatures only; opening a picker never queries or encodes portraits. */
+    fun references(c:Context,db:SQLiteDatabase):List<Reference> {
+        if(!permitted(c))return emptyList()
+        return buildList{db.rawQuery("SELECT lookup,name,vector FROM contact_signatures WHERE status='done' AND vector IS NOT NULL AND model IN (?,?)",arrayOf(PORTRAIT_MODEL,PREVIOUS_PORTRAIT_MODEL)).use{cursor->
+            while(cursor.moveToNext()){val contact=ContactNames.Contact(cursor.getString(0),cursor.getString(1));if(ContactNames.valid(contact.lookup))add(Reference(contact,FaceVectors.unpack(cursor.getBlob(2))))}
+        }}
+    }
     fun setEnabled(c:Context,value:Boolean){
         prefs(c).edit().putBoolean("enabled",value).remove("checked").remove("provider-retry-at").apply()
         if(value)AutoPeople.ensure(c,1_000)
@@ -42,7 +50,7 @@ object ContactRecognition {
     }
     fun invalidate(c:Context){prefs(c).edit().remove("checked").remove("provider-retry-at").apply()}
     fun needsWork(c:Context):Boolean = available(c) && System.currentTimeMillis()>=prefs(c).getLong("provider-retry-at",0) && (prefs(c).getLong("provider-retry-at",0)>0 || prefs(c).getString("model","")!=PORTRAIT_MODEL || System.currentTimeMillis()-prefs(c).getLong("checked",0)>=CHECK_INTERVAL || prefs(c).getLong("faces",-1)!=AutoPeople.revision(c) || prefs(c).getLong("retry-at",0).let{it>0 && System.currentTimeMillis()>=it})
-    fun clear(store:FaceStore){store.writableDatabase.delete("contact_signatures",null,null);store.writableDatabase.delete("contact_matches",null,null);store.writableDatabase.delete("contact_face_matches",null,null)}
+    fun clear(store:FaceStore){val removed=store.writableDatabase.delete("contact_signatures",null,null);store.writableDatabase.delete("contact_matches",null,null);store.writableDatabase.delete("contact_face_matches",null,null);if(removed>0)PeopleData.changed()}
     /** Aggregate local diagnostics only: no portrait pixels, contact identities or vectors. */
     fun diagnostics(c:Context,store:FaceStore):org.json.JSONObject {
         val counts=org.json.JSONObject();val reasons=org.json.JSONObject()
@@ -59,8 +67,8 @@ object ContactRecognition {
             .put("provider_retry_at_ms",prefs(c).getLong("provider-retry-at",0)).put("portraits",counts).put("rejection_reasons",reasons)
     }
     /** One local query, no phone numbers, remote directories, or contact-count limit. */
-    fun photos(c:Context,signal:CancellationSignal):List<Photo> {
-        if(!available(c))return emptyList()
+    fun photos(c:Context,signal:CancellationSignal,manual:Boolean=false):List<Photo> {
+        if(!(if(manual)permitted(c)else available(c)))return emptyList()
         val columns=arrayOf(ContactsContract.Contacts._ID,ContactsContract.Contacts.LOOKUP_KEY,ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,ContactsContract.Contacts.PHOTO_ID,ContactsContract.Contacts.PHOTO_URI,ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP)
         return c.contentResolver.query(ContactsContract.Contacts.CONTENT_URI,columns,null,null,ContactsContract.Contacts._ID+" ASC",signal)?.use{cursor->buildList{
             while(cursor.moveToNext()){
@@ -88,6 +96,7 @@ object ContactRecognition {
         store.writableDatabase.insertWithOnConflict("contact_signatures",null,ContentValues().apply{
             put("lookup",photo.contact.lookup);put("name",photo.contact.name);put("stamp",value.stamp);put("digest",value.digest);put("model",PORTRAIT_MODEL);put("status",value.status);put("vector",value.vector?.let(FaceVectors::pack));put("attempts",value.attempts);put("next_time",value.next);put("reason",value.reason)
         },SQLiteDatabase.CONFLICT_REPLACE)
+        PeopleData.changed()
     }
     fun hash(bytes:ByteArray)=MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(""){"%02x".format(it)}
     /** Prefer the provider's full portrait URI; lookup URIs are identity links, not image paths. */
@@ -132,7 +141,9 @@ object ContactRecognition {
             if(!keepGoing())return false
             val old=cached(store,photo.contact.lookup)
             if(!due(old,photo,now)){
-                store.writableDatabase.execSQL("UPDATE contact_signatures SET name=? WHERE lookup=? AND name!=?",arrayOf(photo.contact.name,photo.contact.lookup,photo.contact.name));continue
+                store.writableDatabase.execSQL("UPDATE contact_signatures SET name=? WHERE lookup=? AND name!=?",arrayOf(photo.contact.name,photo.contact.lookup,photo.contact.name))
+                if(android.database.DatabaseUtils.longForQuery(store.readableDatabase,"SELECT changes()",null)>0)PeopleData.changed()
+                continue
             }
             if(processed++>=limit)return false
             var digest=""
@@ -210,27 +221,29 @@ object ContactRecognition {
         return linked
     }
     /** A temporarily unavailable address book must not prevent gallery recognition. */
-    fun runSafe(c:Context,store:FaceStore,keepGoing:()->Boolean,signal:CancellationSignal=CancellationSignal(),limit:Int=12):Result = try{run(c,store,keepGoing,signal,limit)}catch(e:Exception){
+    fun runSafe(c:Context,store:FaceStore,keepGoing:()->Boolean,signal:CancellationSignal=CancellationSignal(),limit:Int=12,manual:Boolean=false):Result = try{run(c,store,keepGoing,signal,limit,manual)}catch(e:Exception){
         signal.throwIfCanceled()
-        if(!keepGoing())Result(true,null)else{val delay=15*60_000L;prefs(c).edit().putLong("provider-retry-at",System.currentTimeMillis()+delay).apply();Result(false,delay)}
+        if(!keepGoing())Result(true,null)else{val delay=15*60_000L;if(!manual)prefs(c).edit().putLong("provider-retry-at",System.currentTimeMillis()+delay).apply();Result(false,delay)}
     }
     /** Called under FaceWork's writer lock by both foreground and scheduled processing. */
-    fun run(c:Context,store:FaceStore,keepGoing:()->Boolean,signal:CancellationSignal=CancellationSignal(),limit:Int=12):Result {
-        if(!available(c)){clear(store);return Result(false,null)}
+    fun run(c:Context,store:FaceStore,keepGoing:()->Boolean,signal:CancellationSignal=CancellationSignal(),limit:Int=12,manual:Boolean=false):Result {
+        fun permittedRun()=if(manual)permitted(c)else available(c)
+        if(!permittedRun()){if(!manual && !permitted(c))clear(store);return Result(false,null)}
         if(!keepGoing())return Result(true,null)
-        if(!needsWork(c)){
+        if(!manual && !needsWork(c)){
             val now=System.currentTimeMillis();val p=prefs(c)
             val wake=listOf(p.getLong("provider-retry-at",0),p.getLong("retry-at",0)).filter{it>now}.minOrNull()
             return Result(false,wake?.let{it-now})
         }
-        val photos=photos(c,signal)
+        val photos=photos(c,signal,manual)
         // Only a successful complete provider query may discard removed contact references.
         val live=photos.map{it.contact.lookup}.toSet()
         val stale=buildList{store.readableDatabase.rawQuery("SELECT lookup FROM contact_signatures",null).use{while(it.moveToNext())if(it.getString(0) !in live)add(it.getString(0))}}
         stale.forEach{store.writableDatabase.delete("contact_signatures","lookup=?",arrayOf(it))}
+        if(stale.isNotEmpty())PeopleData.changed()
         var detector:FaceEngine?=null;var encoder:FaceEncoder?=null
         try{
-            fun active()=keepGoing() && available(c) && !signal.isCanceled
+            fun active()=keepGoing() && permittedRun() && !signal.isCanceled
             val complete=scan(store,photos,::active,limit=limit,read={readPhoto(c,it,signal)},infer={data->
                 val d=detector?:FaceEngine(c).also{detector=it};val e=encoder?:FaceEncoder(c,1).also{encoder=it};encode(data,d,e)
             })
@@ -239,7 +252,7 @@ object ContactRecognition {
             // Never name someone against a partially scanned address book: an unseen portrait
             // could be the competing contact. Let bounded transient retries finish first too.
             if(complete && retry==null && active() && match(store,references,::active)>0)AutoPeople.dirty(c)
-            if(!available(c)){clear(store);return Result(false,null)}
+            if(!permittedRun()){if(!manual && !permitted(c))clear(store);return Result(false,null)}
             if(complete && active())prefs(c).edit().remove("provider-retry-at").putLong("checked",System.currentTimeMillis()).putLong("retry-at",retry?.let{System.currentTimeMillis()+it}?:0).putLong("faces",AutoPeople.revision(c)).putString("model",PORTRAIT_MODEL).apply()
             return Result(!complete || !active(),retry)
         }finally{detector?.close();encoder?.close()}

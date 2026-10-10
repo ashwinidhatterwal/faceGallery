@@ -16,7 +16,7 @@ class IdentityChooser(private val activity:Activity,private val names:PeopleName
     private var dialog:AlertDialog?=null;private var extra:AlertDialog?=null
     private var epoch=0;@Volatile private var closed=false
     private var signal:CancellationSignal?=null
-    private val images=mutableListOf<Bitmap>();private val crops=mutableListOf<FaceCrop>()
+    private val images=mutableListOf<Bitmap>();private val crops=mutableListOf<FaceCrop?>()
     fun show(key:GroupRules.Key,allowChange:Boolean=false){
         dismiss();val token=epoch;val cancel=CancellationSignal();signal=cancel
         dialog=GalleryStyle.dialog(activity,GalleryStyle.panelRoot(activity).apply{
@@ -42,9 +42,9 @@ class IdentityChooser(private val activity:Activity,private val names:PeopleName
                     render(key,data,source,references,allowChange)
                     val shown=dialog
                     if(shown?.isShowing==true){
-                        val targets=listOf(key.uri to data.member.face)+data.suggestions.mapNotNull{choice->choice.reference?.let{it.member.key.uri to it.member.face}}
+                        val targets=listOf(0 to (key.uri to data.member.face))+data.suggestions.mapIndexedNotNull{index,choice->choice.reference?.let{(index+1) to (it.member.key.uri to it.member.face)}}
                         worker.execute{
-                            for((index,target) in targets.withIndex()){
+                            for((index,target) in targets){
                                 if(closed || token!=epoch || cancel.isCanceled)break
                                 val bitmap=runCatching{PhotoImages.decode(activity,Uri.parse(target.first),480,250_000)}.getOrNull()?:continue
                                 activity.runOnUiThread{if(closed || token!=epoch || dialog!==shown || !shown.isShowing)bitmap.recycle()else{images+=bitmap;crops.getOrNull(index)?.show(bitmap,target.second)}}
@@ -62,9 +62,12 @@ class IdentityChooser(private val activity:Activity,private val names:PeopleName
         root.addView(GalleryStyle.text(activity,if(changing)"Choose the correct person for this face."else"Tap a matching person, or add a name.",14f,GalleryStyle.muted(activity)),LinearLayout.LayoutParams(-1,-2).apply{bottomMargin=dp(16)})
         fun crop(bitmap:Bitmap?,face:FaceObservation)=FaceCrop(activity).apply{GalleryStyle.roundFace(this);show(bitmap,face);crops+=this}
         root.addView(crop(source,data.member.face),LinearLayout.LayoutParams(dp(80),dp(80)).apply{gravity=Gravity.CENTER_HORIZONTAL})
+        if(data.suggestions.isNotEmpty())root.addView(GalleryStyle.text(activity,"Suggested names · tap to confirm",13f,GalleryStyle.muted(activity)))
         data.suggestions.forEachIndexed{index,choice->
             val line=LinearLayout(activity).apply{gravity=Gravity.CENTER_VERTICAL;setPadding(dp(12),dp(12),dp(12),dp(12));background=android.graphics.drawable.GradientDrawable().apply{setColor(GalleryStyle.surface(activity));cornerRadius=dp(14).toFloat()};contentDescription="Assign to ${choice.name}";setOnClickListener{select(key,choice,changing)}}
             choice.reference?.let{line.addView(crop(references[index],it.member.face),LinearLayout.LayoutParams(dp(52),dp(52)))}
+            if(choice.reference==null)crops+=null
+            if(choice.contact!=null)line.addView(ImageView(activity).apply{setImageDrawable(GalleryStyle.icon(activity,"personAdd"));contentDescription="Phone contact"},LinearLayout.LayoutParams(dp(32),dp(32)))
             line.addView(GalleryStyle.text(activity,choice.name,17f).apply{setPadding(dp(12),0,0,0)},LinearLayout.LayoutParams(0,-2,1f));line.addView(ImageView(activity).apply{setImageDrawable(GalleryStyle.icon(activity,"back"));rotation=180f},LinearLayout.LayoutParams(dp(20),dp(20)));root.addView(line,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(8)})
         }
         val actions=LinearLayout(activity)
@@ -81,6 +84,7 @@ class IdentityChooser(private val activity:Activity,private val names:PeopleName
     }
     private fun select(key:GroupRules.Key,choice:IdentitySuggestions.Choice,changing:Boolean){
         if(FaceJobs.state.busy || FaceWork.automatic){editGate.run{select(key,choice,changing)};return}
+        choice.contact?.let{contact->dismiss();apply({if(changing)it.correct(setOf(key),create=true);it.nameFace(key,ContactNames.Choice(contact.name,contact))},"Saved");return}
         if(changing){dismiss();apply({it.correct(setOf(key),target=choice.id)},"Face corrected");return}
         if(choice.sharedPhotos.isEmpty()){dismiss();apply({it.confirmIdentity(key,choice.id)},"Merged");return}
         // The user explicitly confirms repetition; automatic matching still cannot bypass occupancy.
@@ -115,7 +119,7 @@ class IdentityChooser(private val activity:Activity,private val names:PeopleName
             }
         }
     }
-    private fun clearImages(){crops.forEach{it.show(null,null)};crops.clear();images.forEach{if(!it.isRecycled)it.recycle()};images.clear()}
+    private fun clearImages(){crops.forEach{it?.show(null,null)};crops.clear();images.forEach{if(!it.isRecycled)it.recycle()};images.clear()}
     fun dismiss(){editGate.cancel();epoch++;signal?.cancel();extra?.dismiss();extra=null;dialog?.dismiss();dialog=null;clearImages()}
     fun close(){closed=true;dismiss();worker.shutdownNow()}
     private fun dp(value:Int)=GalleryStyle.dp(activity,value)
