@@ -1,4 +1,4 @@
-# Face Gallery — Play release candidate 1.0.0-rc12 (52)
+# Face Gallery — Play release candidate 1.0.0-rc13 (53)
 
 Start with [publishing/START-HERE.md](publishing/START-HERE.md). This source includes store artwork, listing copy, policy/declaration drafts and release checks. Physical-device acceptance, public support details, privacy hosting and Play review remain owner steps.
 
@@ -82,7 +82,7 @@ The APK and AAB are signed using **the same key you provided**. On every manual 
 
 - Android Gradle Plugin 8.13.2, Kotlin 2.3.0, Gradle 8.13 and JDK 17.
 - Android API 36 and SDK Build Tools 35.0.0; minimum supported Android API 28 (Android 9).
-- App ID `com.mosaic.gallery`; version code 52; version name `1.0.0-rc12`.
+- App ID `com.mosaic.gallery`; version code 52; version name `1.0.0-rc13`.
 - `./gradlew :app:assembleDebug` makes a local debug APK, which Android signs with the developer machine's local debug key, not your Play upload key.
 
 ## Important release notes

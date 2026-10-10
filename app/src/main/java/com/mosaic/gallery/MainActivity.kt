@@ -3,7 +3,6 @@ package com.mosaic.gallery
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
-import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.ContentObserver
@@ -358,17 +357,7 @@ class MainActivity : Activity() {
             }
         }
     }
-    private fun shareSelected() {
-        val uris = ArrayList(allPhotos.filter { it.uri.toString() in selected }.map { it.uri })
-        if (uris.isEmpty()) return
-        // Huge lists can exceed Android's intent transaction limit; ask for a smaller selection.
-        if (uris.size > 200) { Toast.makeText(this, "Share up to 200 photos at a time.", Toast.LENGTH_LONG).show(); return }
-        runCatching { startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-            type = when{allPhotos.filter{it.uri.toString() in selected}.all{it.isVideo}->"video/*";allPhotos.filter{it.uri.toString() in selected}.none{it.isVideo}->"image/*";else->"*/*"}; putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-            clipData = ClipData.newUri(contentResolver, "Photos", uris.first()).apply { uris.drop(1).forEach { addItem(ClipData.Item(it)) } }
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        }, "Share selected photos")) }.onFailure { Toast.makeText(this, "Could not share the selected photos.", Toast.LENGTH_SHORT).show() }
-    }
+    private fun shareSelected()=MediaSharing.share(this,allPhotos.filter{it.uri.toString() in selected})
     private fun readPermission() = if (Build.VERSION.SDK_INT >= 33) Manifest.permission.READ_MEDIA_IMAGES else Manifest.permission.READ_EXTERNAL_STORAGE
     private fun currentAccess() = when {
         MediaAccess.fullPhotos(this) || MediaAccess.fullVideos(this) -> Access.FULL

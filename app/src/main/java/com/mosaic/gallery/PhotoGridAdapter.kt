@@ -29,6 +29,8 @@ class PhotoGridAdapter(private val context: Context, private val click: (PhotoRe
     private val longClick: (PhotoRecord)->Unit, private val albumClick:(String,View)->Unit = {_,_->}) : RecyclerView.Adapter<PhotoGridAdapter.Holder>() {
     private data class Item(val photo:PhotoRecord?=null,val title:String="",val count:Int=0,val album:String?=null)
     private var items=emptyList<Item>()
+    private var labelsDay=Long.MIN_VALUE
+    private var labelsScope=""
     private var selected=emptySet<String>()
     var selectionMode=false
     private var closed=false
@@ -75,10 +77,13 @@ class PhotoGridAdapter(private val context: Context, private val click: (PhotoRe
             cells.forEach{cell->val photo=sources[cell.key];if(photo==null || cell.sourceKey!=imageKey(photo))cell.cancel()}
             workers.purge()
         }
+        val day=java.time.LocalDate.now().toEpochDay()
+        val scope=java.util.TimeZone.getDefault().id+java.util.Locale.getDefault().toLanguageTag()
+        if(!invalidateThumbnails && labelsDay==day && labelsScope==scope && items.none{it.album!=null} && items.mapNotNull{it.photo}==photos)return
         val list=ArrayList<Item>();var last=""
         photos.forEach{val label=GalleryDates.label(it.dateTakenMillis);if(label!=last){list+=Item(title=label);last=label};list+=Item(photo=it)}
-        if(items==list && !invalidateThumbnails)return
-        items=list;notifyDataSetChanged()
+        if(items==list && !invalidateThumbnails){labelsDay=day;labelsScope=scope;return}
+        labelsDay=day;labelsScope=scope;items=list;notifyDataSetChanged()
     }
     fun submitAlbums(photos:List<PhotoRecord>){
         val favorites=GalleryStyle.favorites(context);val groups=photos.groupBy{it.album}

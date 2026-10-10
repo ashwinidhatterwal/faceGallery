@@ -67,7 +67,7 @@ class PhotoActivity : Activity() {
 
 
     override fun onCreate(state: Bundle?) {
-        super.onCreate(state)
+        super.onCreate(state);GalleryData.resumed(this)
         peopleNames=PeopleNames(this);peopleHost=FrameLayout(this).apply{visibility=View.GONE};peopleSheet=PhotoPeopleSheet(this,peopleNames,peopleHost){if(::film.isInitialized)animatePeople(false)}
         if(state==null && intent.getBooleanExtra("transition",false)){
             postponeEnterTransition()
@@ -87,6 +87,8 @@ class PhotoActivity : Activity() {
         window.sharedElementReturnTransition=android.transition.TransitionSet().apply{addTransition(android.transition.ChangeBounds());addTransition(android.transition.ChangeTransform());addTransition(android.transition.ChangeImageTransform());duration=250;interpolator=android.view.animation.DecelerateInterpolator()}
         val uri = state?.getString("uri")?.let(Uri::parse) ?: intent.data ?: run { finish(); return }
         current = PhotoRecord(0, uri, intent.getStringExtra("name").orEmpty(), 0, 0, 0,mimeType=state?.getString("mimeType")?:intent.getStringExtra("mimeType")?:"image/*")
+        val initial=GroupPhotoPlaylist.read(this,intent.getStringExtra("groupPlaylist"))
+        current=(initial?:GalleryData.peek(this)?.photos)?.firstOrNull{it.uri==uri}?:current
         album = intent.getStringExtra("album").orEmpty()
         deletion = PhotoDeletion(this) { count -> if (count > 0) finish() }
         deletion.restore(state)
@@ -138,7 +140,7 @@ class PhotoActivity : Activity() {
         }
         setEnterSharedElementCallback(sharedCallback);setExitSharedElementCallback(sharedCallback)
         Ui.back(this){closePhoto()}
-        current?.takeIf{it.isVideo}?.let{photos=listOf(it);filmAdapter.submit(photos);pager.submit(photos,it.uri.toString())}
+        current?.let{photos=initial?.takeIf{list->list.any{p->p.uri==it.uri}}?:listOf(it);filmAdapter.submit(photos);pager.submit(photos,it.uri.toString());film.focus(photos.indexOfFirst{p->p.uri==it.uri},animate=false);updateTitle()}
     }
     private fun toggleControls(){
         if(peopleSheet.isShowing){peopleSheet.dismiss();return}
@@ -169,18 +171,18 @@ class PhotoActivity : Activity() {
         favorite.contentDescription=if(selected)"Remove favorite"else"Add favorite"
     }
     override fun onResume() {
-        super.onResume(); active = true
+        super.onResume();GalleryData.resumed(this); active = true
         deletion.resume()
         pager.resume();status.text=""
         val signal = CancellationSignal(); querySignal = signal
         worker.execute {
             val favorites=GalleryStyle.favorites(this)
             val result = runCatching { val available=GalleryData.load(this,signal).photos
-                val filtered=if(intent.getBooleanExtra("peopleSearch",false))PeopleSearch.filter(available,PeopleSearch.cachedRead(this,available),PeopleSearch.Query(intent.getStringExtra("searchText").orEmpty(),intent.getLongExtra("searchPerson",-1).takeIf{it>=0},intent.getStringExtra("searchFrom")?.let(java.time.LocalDate::parse),intent.getStringExtra("searchThrough")?.let(java.time.LocalDate::parse)),keepGoing={!signal.isCanceled}) else available.filter { (!intent.getBooleanExtra("cameraOnly",false) || CameraMedia.contains(it)) && (album.isEmpty() || if(album=="@favorites")it.uri.toString() in favorites else if(album=="@other")it.album.isBlank() else it.album == album) && (intent.getStringExtra("query").orEmpty().let{q -> q.isEmpty() || it.displayName.contains(q,true) || it.album.contains(q,true)}) };available to filtered }.getOrNull()
+                val filtered=GroupPhotoPlaylist.read(this,intent.getStringExtra("groupPlaylist"))?:if(intent.getBooleanExtra("peopleSearch",false))PeopleSearch.filter(available,PeopleSearch.cachedRead(this,available),PeopleSearch.Query(intent.getStringExtra("searchText").orEmpty(),intent.getLongExtra("searchPerson",-1).takeIf{it>=0},intent.getStringExtra("searchFrom")?.let(java.time.LocalDate::parse),intent.getStringExtra("searchThrough")?.let(java.time.LocalDate::parse)),keepGoing={!signal.isCanceled}) else available.filter { (!intent.getBooleanExtra("cameraOnly",false) || CameraMedia.contains(it)) && (album.isEmpty() || if(album=="@favorites")it.uri.toString() in favorites else if(album=="@other")it.album.isBlank() else it.album == album) && (intent.getStringExtra("query").orEmpty().let{q -> q.isEmpty() || it.displayName.contains(q,true) || it.album.contains(q,true)}) };available to filtered }.getOrNull()
             runOnUiThread {
                 if (!active || signal.isCanceled || isDestroyed) return@runOnUiThread
                 val list=result?.second
-                if(intent.getBooleanExtra("peopleSearch",false) && list?.any{it.uri==current?.uri}!=true){finish();return@runOnUiThread}
+                if(intent.getBooleanExtra("peopleSearch",false) && list!=null && list.none{it.uri==current?.uri}){finish();return@runOnUiThread}
                 val previousPhotos=photos
                 photos = list?.takeIf{it.isNotEmpty()} ?: listOfNotNull(current)
                 val record = photos.find { it.uri == current?.uri }
