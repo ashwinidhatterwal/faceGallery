@@ -237,7 +237,7 @@ class PeopleStore(private val faces:FaceStore) {
     }}
     fun syncContacts(context:android.content.Context,signal:android.os.CancellationSignal=android.os.CancellationSignal()){
         if(context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)return
-        val links=buildList{db.rawQuery("SELECT DISTINCT contact_lookup,contact_name FROM people WHERE contact_lookup IS NOT NULL",null).use{c->while(c.moveToNext())add(ContactNames.Contact(c.getString(0),c.getString(1).orEmpty()))}}.distinctBy{it.lookup}
+        val links=FaceWork.read{buildList{db.rawQuery("SELECT DISTINCT contact_lookup,contact_name FROM people WHERE contact_lookup IS NOT NULL",null).use{c->while(c.moveToNext())add(ContactNames.Contact(c.getString(0),c.getString(1).orEmpty()))}}}.distinctBy{it.lookup}
         for(old in links){signal.throwIfCanceled();val next=runCatching{ContactNames.resolve(context,old,signal)}.getOrNull()?:continue
             if(next!=old)FaceWork.write{signal.throwIfCanceled();db.execSQL("UPDATE people SET label=CASE WHEN label=contact_name THEN ? ELSE label END,contact_name=?,contact_lookup=? WHERE contact_lookup=? AND contact_name=?",arrayOf(next.name,next.name,next.lookup,old.lookup,old.name));if(android.database.DatabaseUtils.longForQuery(db,"SELECT changes()",null)>0)PeopleData.changed()}
         }

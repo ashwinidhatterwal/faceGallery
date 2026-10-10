@@ -73,6 +73,7 @@ class PeopleActivity:Activity(){
             val moreSelection=GalleryStyle.action(this,"more","Selection options"){}
             moreSelection.setOnClickListener{anchor->
                 val actions=mutableListOf<GalleryMenu.Action>()
+                actions+=GalleryMenu.Action("tag","Add tags"){TagEditor.show(this,selectedPhotos.toSet())}
                 if(selectedPhotos.size==1)actions+=GalleryMenu.Action("info","Details"){folderPhotos.firstOrNull{it.uri.toString() in selectedPhotos}?.let{PhotoDetails.show(this,it)}}
                 actions+=GalleryMenu.Action("select","Select all"){selectingPhotos=true;selectedPhotos.addAll(folderPhotos.map{it.uri.toString()});photoControls()}
                 actions+=GalleryMenu.Action("close","Exit selection"){clearPhotoSelection()}
@@ -96,7 +97,7 @@ class PeopleActivity:Activity(){
             if(!warming.compareAndSet(false,true))return
             val revision=PeopleData.version;val media=GalleryData.version
             warmWorker.execute{try{
-                val signal=CancellationSignal();val data=readData(app,photos,signal,false){AutoPeople.allowed(app) && media==GalleryData.version}
+                val signal=CancellationSignal();runCatching{ContactLinkSync.refresh(app,signal)}.onFailure{PeopleReadDiagnostics.record(app,it)};val data=readData(app,photos,signal,false){AutoPeople.allowed(app) && media==GalleryData.version}
                 if(media==GalleryData.version)cache.put(app,revision,data,media)
                 val covers=data.rows.filter{it.status=="known" && it.person!=null}.groupBy{data.graph[it.person]?:it.person!!}
                     .filterKeys{it !in data.provisional}.values.sortedByDescending{it.map{row->row.key.uri}.distinct().size}.take(9).map{it.maxBy{row->row.face.score}}
@@ -112,7 +113,7 @@ class PeopleActivity:Activity(){
         }
         private fun readDataInternal(context:android.content.Context,photos:List<PhotoRecord>,signal:CancellationSignal,duplicates:Boolean,keepGoing:()->Boolean,hints:Boolean):ViewData {
             val photoMap=photos.associateBy{it.uri.toString()}
-            return FaceStore(context).use{faceStore->val store=PeopleStore(faceStore);if(hints)store.syncContacts(context,signal)
+            return FaceStore(context).use{faceStore->val store=PeopleStore(faceStore)
                 faceStore.snapshot{
                     signal.throwIfCanceled();val valid=photos.map{it.uri.toString()}.toSet()-faceStore.pending(photos).map{it.uri.toString()}.toSet()
                     val members=store.members().filter{it.key.uri in valid};val roots=store.components(members);val labels=store.labels(roots);val capsules=if(hints || duplicates)store.capsules(members,roots)else emptyList();val contacts=store.contacts(roots)
@@ -120,7 +121,7 @@ class PeopleActivity:Activity(){
                     val provisional=if(hints)IdentityEvidence.provisional(capsules,members,store.names().keys+contacts.keys)else emptySet()
                     val covers=if(duplicates)emptyMap()else members.filter{it.status=="known" && it.person!=null}.groupBy{roots[it.person]?:it.person!!}
                         .filterKeys{it !in established}.mapValues{(_,rows)->rows.maxBy{it.face.score}.key}
-                    val suggestedNames=if(hints)IdentitySuggestions.profileNames(store,covers,valid){signal.throwIfCanceled();keepGoing()}else emptyMap()
+                    val suggestedNames=if(hints)try{IdentitySuggestions.profileNamesCached(store,covers,valid,keepGoing={signal.throwIfCanceled();keepGoing()},rows=members,roots=roots,groups=capsules)}catch(error:Exception){signal.throwIfCanceled();if(error is java.util.concurrent.CancellationException)throw error;PeopleReadDiagnostics.record(context,error);emptyMap()}else emptyMap()
                     ViewData(members,roots,labels,store.relations(),photoMap,if(duplicates)DuplicateReview.find(capsules,store.relations(),policy=store.policy(),keepGoing=keepGoing)else emptyList(),store.canUndo(),store.policy(),faceStore.summary(),faceStore.signatureSummary(),contacts,established,provisional,"",suggestedNames)
                 }
             }
@@ -134,7 +135,7 @@ class PeopleActivity:Activity(){
         }
         val saved=dataCache().get(this)
         if(saved!=null){renderData(saved);return}
-        if(!loaded)dataCache().preview(this)?.let{renderData(it)}
+        if(!loaded)dataCache().preview(this,allowMediaRefresh=true)?.let{renderData(it)}
         if(refreshing){refreshAgain=true;return};refreshing=true;controls();val token=++epoch;val signal=CancellationSignal();query=signal
         worker.execute{
             val result=runCatching{
@@ -148,6 +149,7 @@ class PeopleActivity:Activity(){
     private fun handleReadFailure(error:Throwable){
         if(error is android.os.OperationCanceledException || error is java.util.concurrent.CancellationException)return
         android.util.Log.w("PeopleRead","People refresh failed",error)
+        PeopleReadDiagnostics.record(this,error)
         if(!MediaAccess.photos(this)){
             profiles=emptyList();cards.submit(emptyList());folderPhotos=emptyList();selectedPhotos.clear();fullPhotos.submitList(emptyList());loaded=false
             caption.text="Allow photo access to see people.";controls()
@@ -219,7 +221,7 @@ class PeopleActivity:Activity(){
                     val store=PeopleStore(f)
                     val valid=photos.map{it.uri.toString()}.toSet()-f.pending(photos).map{it.uri.toString()}.toSet()
                     val rows=store.members().filter{it.key.uri in valid};val roots=store.components(rows);val groups=store.capsules(rows,roots)
-                    org.json.JSONObject(RecognitionMetrics.report(store,rows,roots,groups,IdentityEvidence.provisional(groups,rows,store.established(roots)))).put("contact_processing",ContactRecognition.diagnostics(this,f)).toString(2)
+                    org.json.JSONObject(RecognitionMetrics.report(store,rows,roots,groups,IdentityEvidence.provisional(groups,rows,store.established(roots)))).put("contact_processing",ContactRecognition.diagnostics(this,f)).put("people_reads",PeopleReadDiagnostics.read(this)).toString(2)
                 }}
             }
             runOnUiThread{if(active)result.onSuccess{

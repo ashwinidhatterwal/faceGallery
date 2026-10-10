@@ -59,6 +59,7 @@ class MainActivity : Activity() {
     private var loadedAccess:Access? = null
     private var loadedScope=""
     private var lastFavorites = emptySet<String>()
+    private var lastTags=-1L
     private var permissionInFlight=false
     private var consentShowing=false
     private lateinit var galleryRoot:View
@@ -128,10 +129,10 @@ class MainActivity : Activity() {
         if(needsRefresh || loadedAccess!=currentAccess() || loadedScope!=MediaAccess.scope(this) || GalleryData.peek(this)==null)refreshGallery()
         else {
             val favorites=GalleryStyle.favorites(this)
-            if(favorites!=lastFavorites && (page=="Albums" || album=="@favorites")){
+            if(lastTags!=MediaTags.version || favorites!=lastFavorites && (page=="Albums" || album=="@favorites")){
                 val state=grid.layoutManager?.onSaveInstanceState();render();grid.layoutManager?.onRestoreInstanceState(state)
             }
-            lastFavorites=favorites
+            lastFavorites=favorites;lastTags=MediaTags.version
         }
         startAutomaticRecognition()
         deletion.resume()
@@ -174,6 +175,7 @@ class MainActivity : Activity() {
         selectionMore.setOnClickListener{anchor->
             val actions=mutableListOf<GalleryMenu.Action>()
             if(selected.size==1)actions+=GalleryMenu.Action("info","Details"){allPhotos.firstOrNull{it.uri.toString() in selected}?.let{PhotoDetails.show(this,it)}}
+            actions+=GalleryMenu.Action("tag","Add tags"){TagEditor.show(this,selected.toSet()){val state=grid.layoutManager?.onSaveInstanceState();showAlbum();grid.layoutManager?.onRestoreInstanceState(state)}}
             actions+=GalleryMenu.Action("select","Select all"){selected.addAll(visible.map{it.uri.toString()});updateSelection()}
             actions+=GalleryMenu.Action("close","Clear selection"){selected.clear();updateSelection()}
             GalleryMenu.show(this,"Selection",actions,anchor)
@@ -238,7 +240,7 @@ class MainActivity : Activity() {
         }
         actions+=GalleryMenu.Action("refresh","Refresh library"){adapter.retryThumbnails();refreshGallery()}
         actions+=GalleryMenu.Action("settings","Settings"){startActivity(Intent(this,SettingsActivity::class.java))}
-        GalleryMenu.show(this,if(folderOpen)album.ifBlank{"Library"}else page,actions,anchor)
+        GalleryMenu.show(this,if(folderOpen && album.startsWith(MediaTags.PREFIX))MediaTags.albumTitle(this,album)else if(folderOpen)album.ifBlank{"Library"}else page,actions,anchor)
     }
     private fun setCameraOnly(value:Boolean){
         if(cameraOnly==value)return
@@ -253,7 +255,7 @@ class MainActivity : Activity() {
     }
     private fun updateSelection() {
         if(::fastScroll.isInitialized){fastScroll.bringToFront();fastScroll.bind(grid){page=="Photos" && !folderOpen && !selecting && !openingAlbum}}
-        heading.text=if(selecting)"${selected.size} selected"else if(album=="@favorites")"Favorites"else if(album=="@other")"Other"else if(folderOpen)album.ifBlank{"All"}else page
+        heading.text=if(selecting)"${selected.size} selected"else if(album=="@favorites")"Favorites"else if(album=="@other")"Other"else if(folderOpen && album.startsWith(MediaTags.PREFIX))MediaTags.albumTitle(this,album)else if(folderOpen)album.ifBlank{"All"}else page
         heading.textSize=if(selecting)24f else 36f
         headerActions.removeAllViews()
         if(selecting){
@@ -261,7 +263,7 @@ class MainActivity : Activity() {
             headerActions.addView(GalleryStyle.action(this,"close","Exit selection",compact=true){selecting=false;selected.clear();updateSelection()})
         }else{
             if(folderOpen)headerActions.addView(GalleryStyle.action(this,"back","Back to albums",compact=true){closeAlbum()})
-            headerActions.addView(GalleryStyle.action(this,"search","Search",compact=true){switchPage("Search")})
+            headerActions.addView(GalleryStyle.action(this,"search","Search",compact=true){startActivity(Intent(this,PeopleSearchActivity::class.java))})
             select=GalleryStyle.action(this,"select","Select photos",compact=true){if(page=="Albums" && !folderOpen){page="Photos";render()};selecting=true;updateSelection()}
             headerActions.addView(select)
             val more=GalleryStyle.action(this,"more","More",compact=true){}
@@ -271,7 +273,7 @@ class MainActivity : Activity() {
         navigation.visibility=if(selecting)View.GONE else View.VISIBLE
         navigation.removeAllViews()
         listOf("Photos" to "photo","Albums" to "album","Search" to "search").forEach{(label,icon)->
-            GalleryStyle.add(navigation,GalleryStyle.action(this,icon,label,page==label){switchPage(label)})
+            GalleryStyle.add(navigation,GalleryStyle.action(this,if(label=="Search")"personAdd"else icon,if(label=="Search")"People"else label,page==label){switchPage(label)})
         }
         adapter.selectionMode=selecting;adapter.setSelection(selected.toSet());updateCount()
     }
@@ -280,8 +282,9 @@ class MainActivity : Activity() {
         status.visibility=if(!selecting && unreadableVolumes>0)View.VISIBLE else View.GONE
     }
     private fun showAlbum(clearCache:Boolean=false){
+        val tags=MediaTags.read(this)
         val favorites=GalleryStyle.favorites(this)
-        visible=allPhotos.filter{(page!="Photos" || folderOpen || !cameraOnly || CameraMedia.contains(it)) && (album.isEmpty()||if(album=="@favorites")it.uri.toString() in favorites else if(album=="@other")it.album.isBlank() else it.album==album)}
+        visible=allPhotos.filter{(page!="Photos" || folderOpen || !cameraOnly || CameraMedia.contains(it)) && (album.isEmpty()||if(album=="@favorites")it.uri.toString() in favorites else if(album=="@other")it.album.isBlank() else if(album.startsWith(MediaTags.PREFIX))tags.matches(it.uri.toString(),album) else it.album==album)}
         adapter.submitList(visible,clearCache);adapter.setSelection(selected.toSet())
         if(visible.isNotEmpty())grid.scrollToPosition(scrollPosition.coerceIn(0,adapter.itemCount-1))
         message.visibility=if(visible.isEmpty()&&page!="Albums")View.VISIBLE else View.GONE

@@ -66,7 +66,7 @@ object ContactRecognition {
             .put("recognition_consent",RecognitionConsent.allowed(c)).put("background_enabled",AutoPeople.enabled(c))
             .put("portrait_policy",PORTRAIT_MODEL).put("last_complete_check_ms",prefs(c).getLong("checked",0))
             .put("provider_queried_at_ms",prefs(c).getLong("provider-queried-at",0)).put("provider_portrait_count",prefs(c).getInt("provider-portrait-count",-1)).put("last_stage",prefs(c).getString("last-stage","not_recorded"))
-            .put("suggestion_floor",.5f).put("portrait_entries",ContactDiagnostics.entries(c,store,names))
+            .put("suggestion_floor",IdentitySuggestions.CONTACT_FLOOR).put("portrait_entries",ContactDiagnostics.entries(c,store,names))
             .put("provider_retry_at_ms",prefs(c).getLong("provider-retry-at",0)).put("portraits",counts).put("rejection_reasons",reasons)
     }
     /** One local query, no phone numbers, remote directories, or contact-count limit. */

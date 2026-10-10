@@ -119,7 +119,7 @@ open class AutoPeopleJob:JobService() {
             var more=false;var cool=false;var retryDelay:Long?=null
             val outcome=runCatching{FaceWork.write{
                 val heat=FaceHeat(this);val deadline=SystemClock.elapsedRealtime()+20_000
-                fun keepGoing():Boolean {val okay=heat.canRun();if(!okay)cool=true;return !run.stopped && !FaceWork.stopAutomatic && !FaceJobs.state.busy && AutoPeople.allowed(this) && AutoPeople.enabled(this) && SystemClock.elapsedRealtime()<deadline && okay}
+                fun keepGoing():Boolean {if(FaceWork.readRequested){more=true;return false};val okay=heat.canRun();if(!okay)cool=true;return !run.stopped && !FaceWork.stopAutomatic && !FaceJobs.state.busy && AutoPeople.allowed(this) && AutoPeople.enabled(this) && SystemClock.elapsedRealtime()<deadline && okay}
                 if(!keepGoing()){more=true;return@write}
                 val result=photos(run.signal);val photos=result.photos.filterNot{it.isVideo}
                 FaceStore(this).use{store->

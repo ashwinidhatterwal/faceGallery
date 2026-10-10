@@ -36,10 +36,23 @@ class PhotoActivity : Activity() {
     private lateinit var peopleNames:PeopleNames
     private lateinit var peopleSheet:PhotoPeopleSheet
     private lateinit var peopleHost:FrameLayout
+    private var tagsOpen=false
+    private var keyboardInset=0;private var fullViewerHeight=0
+    private lateinit var tagCapsule:TextView
+    private fun showTags(){
+        val photo=current?:return
+        if(tagsOpen)return
+        if(peopleSheet.isShowing)peopleSheet.dismiss()
+        tagsOpen=true;controlsVisible=true;chrome.visibility=View.VISIBLE;chrome.alpha=1f;viewerBars(true)
+        peopleHost.removeAllViews();peopleHost.addView(TagEditor.content(this,setOf(photo.uri.toString())){closeTags()},FrameLayout.LayoutParams(-1,-1));peopleHost.visibility=View.VISIBLE;tagCapsule.visibility=View.GONE;animatePeople(true)
+    }
+    private fun closeTags(){if(!tagsOpen)return;tagsOpen=false;peopleHost.clearFocus();(getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(peopleHost.windowToken,0);animatePeople(false);updateTagCapsule();tagCapsule.visibility=View.VISIBLE}
+    private fun updateTagCapsule(){if(::tagCapsule.isInitialized){val count=current?.let{MediaTags.read(this).labels(it.uri.toString()).size}?:0;tagCapsule.text=if(count==0)"Tags"else"Tags · $count"}}
     private var peopleFraction=0f;private var peopleAnimator:android.animation.ValueAnimator?=null
     private var viewerRoot:FrameLayout?=null
     private fun showPeople(){current?.let{record->
         if(record.isVideo || peopleSheet.isShowing)return
+        if(tagsOpen)closeTags()
         controlsVisible=true;chrome.visibility=View.VISIBLE;chrome.alpha=1f;viewerBars(true)
         peopleSheet.show(record,(pager.currentImage()?.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap)
         animatePeople(true)
@@ -56,18 +69,24 @@ class PhotoActivity : Activity() {
         val root=viewerRoot?:return;if(!::pager.isInitialized || root.height==0)return
         val insetTop=status.bottom.coerceAtLeast(top.bottom);val closedBottom=(root.height-film.top+GalleryStyle.dp(this,1)).coerceAtLeast(0)
         val available=(root.height-insetTop-chrome.paddingBottom).coerceAtLeast(0)
-        val middle=insetTop+available/2;val openBottom=root.height-middle
+        fullViewerHeight=maxOf(fullViewerHeight,root.height)
+        val keyboardVisible=keyboardInset>0 || Build.VERSION.SDK_INT<30 && root.height<fullViewerHeight-GalleryStyle.dp(this,100)
+        val middle=insetTop+(available*(if(tagsOpen && keyboardVisible).25f else if(tagsOpen).58f else .5f)).toInt();val openBottom=root.height-middle
         val margins=pager.layoutParams as FrameLayout.LayoutParams
         val nextBottom=(closedBottom+(openBottom-closedBottom)*peopleFraction).toInt()
         if(margins.topMargin!=insetTop || margins.bottomMargin!=nextBottom){margins.topMargin=insetTop;margins.bottomMargin=nextBottom;pager.layoutParams=margins}
         val panel=peopleHost.layoutParams as FrameLayout.LayoutParams
-        if(panel.topMargin!=middle || panel.height!=available/2){panel.topMargin=middle;panel.height=available/2;peopleHost.layoutParams=panel}
-        peopleHost.translationY=(1f-peopleFraction)*available/2
+        val height=root.height-middle-chrome.paddingBottom
+        if(panel.topMargin!=middle || panel.height!=height){panel.topMargin=middle;panel.height=height;peopleHost.layoutParams=panel}
+        peopleHost.translationY=(1f-peopleFraction)*height
+        if(::tagCapsule.isInitialized)tagCapsule.translationY=-(margins.bottomMargin+GalleryStyle.dp(this,12)).toFloat()
     }
 
 
     override fun onCreate(state: Bundle?) {
         super.onCreate(state);GalleryData.resumed(this)
+        @Suppress("DEPRECATION")
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         peopleNames=PeopleNames(this);peopleHost=FrameLayout(this).apply{visibility=View.GONE};peopleSheet=PhotoPeopleSheet(this,peopleNames,peopleHost){if(::film.isInitialized)animatePeople(false)}
         if(state==null && intent.getBooleanExtra("transition",false)){
             postponeEnterTransition()
@@ -108,7 +127,7 @@ class PhotoActivity : Activity() {
             onSwipeUp={showPeople()}
             onDismissProgress={progress->chrome.animate().cancel();chrome.alpha=if(controlsVisible)1f-progress.coerceAtMost(0.95f)else 0f}
             onDismissReleased={closePhoto()}
-            onSelected={photo->if(peopleSheet.isShowing)peopleSheet.dismiss();current=photo;if(!photo.isVideo)peopleSheet.prepare(photo);editAction.visibility=if(photo.isVideo)View.GONE else View.VISIBLE;status.text="";updateTitle();updateNavigation()}
+            onSelected={photo->if(tagsOpen)closeTags();if(peopleSheet.isShowing)peopleSheet.dismiss();current=photo;if(!photo.isVideo)peopleSheet.prepare(photo);editAction.visibility=if(photo.isVideo)View.GONE else View.VISIBLE;status.text="";updateTitle();updateNavigation()}
             onImageReady={available->peopleSheet.updatePreview((pager.currentImage()?.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap);current?.takeIf{!it.isVideo}?.let{peopleSheet.prepare(it)};status.text=if(available || current?.isVideo==true)""else"Media unavailable";startPostponedEnterTransition()}
         }
         state?.getString("videoUri")?.let{pager.restoreVideoState(GalleryVideoView.State(it,state.getLong("videoPosition"),state.getBoolean("videoPlaying",true),state.getBoolean("videoMuted",false)))}
@@ -124,10 +143,23 @@ class PhotoActivity : Activity() {
         editAction=GalleryStyle.action(this,"edit","Edit"){current?.takeIf{!it.isVideo}?.let{startActivity(Intent(this,PhotoEditorActivity::class.java).setData(it.uri).putExtra("name",it.displayName))}};GalleryStyle.add(bottom,editAction)
         GalleryStyle.add(bottom,GalleryStyle.action(this,"delete","Delete"){current?.let{deletion.delete(listOf(it.uri))}})
         chrome.addView(bottom);root.addView(chrome,FrameLayout.LayoutParams(-1,-1))
-        viewerRoot=root;root.addView(peopleHost,FrameLayout.LayoutParams(-1,0))
+        viewerRoot=root
+        tagCapsule=GalleryStyle.text(this,"Tags",13f,android.graphics.Color.WHITE).apply{
+            gravity=android.view.Gravity.CENTER;setPadding(GalleryStyle.dp(context,18),GalleryStyle.dp(context,8),GalleryStyle.dp(context,18),GalleryStyle.dp(context,8));contentDescription="Edit tags"
+            background=android.graphics.drawable.GradientDrawable().apply{setColor(0x80000000.toInt());cornerRadius=GalleryStyle.dp(context,24).toFloat();setStroke(GalleryStyle.dp(context,1),0x40ffffff)}
+            setOnClickListener{showTags()}
+        }
+        root.addView(tagCapsule,FrameLayout.LayoutParams(-2,-2,android.view.Gravity.BOTTOM or android.view.Gravity.END).apply{marginEnd=GalleryStyle.dp(this@PhotoActivity,16)})
+        root.addView(peopleHost,FrameLayout.LayoutParams(-1,0))
         root.viewTreeObserver.addOnGlobalLayoutListener{layoutPeople()}
 
         Ui.insets(this,chrome)
+        if(Build.VERSION.SDK_INT>=30)chrome.setOnApplyWindowInsetsListener{view,insets->
+            val bars=insets.getInsetsIgnoringVisibility(android.view.WindowInsets.Type.systemBars() or android.view.WindowInsets.Type.displayCutout())
+            keyboardInset=insets.getInsets(android.view.WindowInsets.Type.ime()).bottom
+            view.setPadding(bars.left,bars.top,bars.right,if(tagsOpen)maxOf(bars.bottom,keyboardInset)else bars.bottom)
+            layoutPeople();insets
+        }
         if(Build.VERSION.SDK_INT<30)chrome.setOnApplyWindowInsetsListener{view,insets->
             @Suppress("DEPRECATION")
             view.setPadding(maxOf(insets.stableInsetLeft,insets.systemWindowInsetLeft),maxOf(insets.stableInsetTop,insets.systemWindowInsetTop),maxOf(insets.stableInsetRight,insets.systemWindowInsetRight),maxOf(insets.stableInsetBottom,insets.systemWindowInsetBottom));insets
@@ -143,6 +175,7 @@ class PhotoActivity : Activity() {
         current?.let{photos=initial?.takeIf{list->list.any{p->p.uri==it.uri}}?:listOf(it);filmAdapter.submit(photos);pager.submit(photos,it.uri.toString());film.focus(photos.indexOfFirst{p->p.uri==it.uri},animate=false);updateTitle()}
     }
     private fun toggleControls(){
+        if(tagsOpen){closeTags();return}
         if(peopleSheet.isShowing){peopleSheet.dismiss();return}
         controlsVisible=!controlsVisible
         chrome.animate().cancel()
@@ -177,8 +210,8 @@ class PhotoActivity : Activity() {
         val signal = CancellationSignal(); querySignal = signal
         worker.execute {
             val favorites=GalleryStyle.favorites(this)
-            val result = runCatching { val available=GalleryData.load(this,signal).photos
-                val filtered=GroupPhotoPlaylist.read(this,intent.getStringExtra("groupPlaylist"))?:if(intent.getBooleanExtra("peopleSearch",false))PeopleSearch.filter(available,PeopleSearch.cachedRead(this,available),PeopleSearch.Query(intent.getStringExtra("searchText").orEmpty(),intent.getLongExtra("searchPerson",-1).takeIf{it>=0},intent.getStringExtra("searchFrom")?.let(java.time.LocalDate::parse),intent.getStringExtra("searchThrough")?.let(java.time.LocalDate::parse)),keepGoing={!signal.isCanceled}) else available.filter { (!intent.getBooleanExtra("cameraOnly",false) || CameraMedia.contains(it)) && (album.isEmpty() || if(album=="@favorites")it.uri.toString() in favorites else if(album=="@other")it.album.isBlank() else it.album == album) && (intent.getStringExtra("query").orEmpty().let{q -> q.isEmpty() || it.displayName.contains(q,true) || it.album.contains(q,true)}) };available to filtered }.getOrNull()
+            val result = runCatching { val available=GalleryData.load(this,signal).photos;val tags=MediaTags.read(this)
+                val filtered=GroupPhotoPlaylist.read(this,intent.getStringExtra("groupPlaylist"))?:if(intent.getBooleanExtra("peopleSearch",false))PeopleSearch.filter(available,PeopleSearch.cachedRead(this,available),PeopleSearch.Query(intent.getStringExtra("searchText").orEmpty(),intent.getLongExtra("searchPerson",-1).takeIf{it>=0},intent.getStringExtra("searchFrom")?.let(java.time.LocalDate::parse),intent.getStringExtra("searchThrough")?.let(java.time.LocalDate::parse)),keepGoing={!signal.isCanceled}) else available.filter { (!intent.getBooleanExtra("cameraOnly",false) || CameraMedia.contains(it)) && (album.isEmpty() || if(album=="@favorites")it.uri.toString() in favorites else if(album=="@other")it.album.isBlank() else if(album.startsWith(MediaTags.PREFIX))tags.matches(it.uri.toString(),album) else it.album == album) && (intent.getStringExtra("query").orEmpty().let{q -> q.isEmpty() || it.displayName.contains(q,true) || it.album.contains(q,true)}) };available to filtered }.getOrNull()
             runOnUiThread {
                 if (!active || signal.isCanceled || isDestroyed) return@runOnUiThread
                 val list=result?.second
@@ -204,11 +237,12 @@ class PhotoActivity : Activity() {
                 }
             }else photo.displayName
         }
-        updateFavorite()
+        updateFavorite();updateTagCapsule()
     }
     private fun navigate(delta:Int){pager.step(delta)}
     private fun closePhoto(){
         if(deletion.inProgress||closing)return
+        if(tagsOpen){closeTags();return}
         if(peopleSheet.isShowing){peopleSheet.dismiss();return}
         closing=true
         val image=pager.settleForClose();viewerBars(true)
@@ -228,14 +262,14 @@ class PhotoActivity : Activity() {
         }, "Share media")) }.onFailure { Toast.makeText(this, "Could not share this item.", Toast.LENGTH_SHORT).show() }
     }
     private fun mediaMenu(anchor:View){
-        val actions=mutableListOf(GalleryMenu.Action("info","Details"){info()})
+        val actions=mutableListOf(GalleryMenu.Action("info","Details"){info()},GalleryMenu.Action("tag","Tags"){showTags()})
         if(current?.isVideo!=true){actions+=GalleryMenu.Action("personAdd","People in this photo"){showPeople()};actions+=GalleryMenu.Action("rotate","Rotate photo"){pager.currentImage()?.rotateQuarterTurn()}}
         actions+=GalleryMenu.Action("settings","Settings"){startActivity(Intent(this,SettingsActivity::class.java))}
         GalleryMenu.show(this,if(current?.isVideo==true)"Video options"else"Photo options",actions,anchor)
     }
     private fun info(){current?.let{PhotoDetails.show(this,it)}}
     override fun onPause() {
-        active=false;querySignal?.cancel();if(!peopleNames.requestingPermission){peopleSheet.dismiss();peopleNames.dismiss()}
+        active=false;if(tagsOpen)closeTags();querySignal?.cancel();if(!peopleNames.requestingPermission){peopleSheet.dismiss();peopleNames.dismiss()}
         pager.pause(retainImage=closing)
         super.onPause()
     }

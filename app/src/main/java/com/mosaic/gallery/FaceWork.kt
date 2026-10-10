@@ -6,7 +6,7 @@ import kotlin.concurrent.withLock
 
 /** All graph writers share one lock; an edit cancels automatic inference at its next safe boundary. */
 object FaceWork {
-    private val lock=ReentrantLock()
+    private val lock=ReentrantLock(true)
     @Volatile var automatic=false;private set
     @Volatile var stopAutomatic=false;private set
     @Volatile var editingUntil=0L;private set
@@ -17,5 +17,12 @@ object FaceWork {
     fun pauseForEdit(){editingUntil=SystemClock.elapsedRealtime()+60_000;stopAutomatic=true}
     fun begin():Boolean {if(automatic || FaceJobs.state.busy || SystemClock.elapsedRealtime()<editingUntil)return false;automatic=true;stopAutomatic=false;return true}
     fun end(){automatic=false;main.post{listeners.toList().forEach{it()}}}
+    private val readers=java.util.concurrent.atomic.AtomicInteger()
+    val readRequested get()=readers.get()>0
+    fun <T> read(block:()->T):T {
+        if(lock.isHeldByCurrentThread)return block()
+        readers.incrementAndGet()
+        try{return lock.withLock(block)}finally{readers.decrementAndGet()}
+    }
     fun <T> write(block:()->T):T=lock.withLock(block)
 }

@@ -133,6 +133,7 @@ open class FaceScanService:Service(){
     }
     private val heat=FaceHeat(this)
     private fun keepGoing():Boolean {
+        if(automaticSession && FaceWork.readRequested){pauseReason="Recognition will continue in the background.";continuing=false;return false}
         if(!continuing || !AutoPeople.enabled(this))return false
         if(!heat.canRun()){pauseReason="Paused for battery or temperature. Recognition will continue automatically.";continuing=false;return false}
         val full=checkSelfPermission(if(Build.VERSION.SDK_INT>=33)android.Manifest.permission.READ_MEDIA_IMAGES else android.Manifest.permission.READ_EXTERNAL_STORAGE)==android.content.pm.PackageManager.PERMISSION_GRANTED

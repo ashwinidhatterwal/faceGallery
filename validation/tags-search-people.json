@@ -1,0 +1,32 @@
+{
+  "version_code": 54,
+  "version_name": "1.0.0-rc14",
+  "application_id": "com.mosaic.gallery",
+  "face_database_version": 11,
+  "contact_suggestion_floor": 0.6,
+  "tests": {
+    "tests": 488,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint": {
+    "Warning": 146
+  },
+  "gradle_tasks": [
+    ":app:testDebugUnitTest",
+    ":app:assembleRelease",
+    ":app:bundleRelease",
+    ":app:lintRelease"
+  ],
+  "gradle_result": "BUILD SUCCESSFUL",
+  "python_verifier_tests": 4,
+  "static_publishing_checks": "passed",
+  "release_archive_manifest_model_native_alignment": "passed",
+  "signed_release_verified": false,
+  "apk_sha256": "8b2c1f6b192557c02b40f12f37a997e2b81dcbab7b142121f8c5c0a4ba8761e8",
+  "bundle_sha256": "2eac9072cabd90a2a1627f3b65a8e1df9dd8d28d1af43414574aa47edc644b0e",
+  "model_sha256": "35e2fc149c76efefefbc264fcb5153a467a1b490a82001aba19bd7fc432ec235",
+  "device_acceptance": "Not run on the user device; retest People while background work runs and export people_reads if retry remains.",
+  "location_search": "User-entered place labels; no automatic city index or added location permission."
+}

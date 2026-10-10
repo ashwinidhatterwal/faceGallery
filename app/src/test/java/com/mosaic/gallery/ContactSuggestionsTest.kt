@@ -82,12 +82,18 @@ class ContactSuggestionsTest {
         FaceStore(app).use{f->assertEquals(listOf("Alice"),PeopleStore(f).names().values.toList());assertTrue(PeopleStore(f).contacts().isEmpty())}
         c.destroy()
     }
-    @Test fun halfSimilarityHintIsTemporaryAndAppearsInBothViews(){FaceStore(app).use{f->
-        add(f,1);val p=PeopleStore(f);val id=seed(p,1);portrait(f,cos=.5f)
+    @Test fun sixtySimilarityHintIsTemporaryAndAppearsInBothViews(){FaceStore(app).use{f->
+        add(f,1);val p=PeopleStore(f);val id=seed(p,1);portrait(f,cos=.6f)
         val visible=setOf(key(1).uri)
         assertEquals("Contact 1",IdentitySuggestions.profileNames(p,mapOf(id to key(1)),visible)[id])
         assertEquals("Contact 1",IdentitySuggestions.photo(p,key(1).uri,visible).single().suggestedName)
         assertTrue(p.names().isEmpty());assertTrue(p.contacts().isEmpty())
+    }}
+    @Test fun contactBelowSixtyDoesNotSuggestEvenWhenItIsClosest(){FaceStore(app).use{f->
+        add(f,1);val p=PeopleStore(f);val id=seed(p,1);portrait(f,cos=.599f)
+        val visible=setOf(key(1).uri)
+        assertTrue(IdentitySuggestions.profileNames(p,mapOf(id to key(1)),visible).isEmpty())
+        assertNull(IdentitySuggestions.photo(p,key(1).uri,visible).single().suggestedName)
     }}
     @Test fun eachContactSuggestsOnlyItsClosestUnnamedGroup(){FaceStore(app).use{f->
         add(f,1);add(f,2,-.1f);val p=PeopleStore(f);val a=seed(p,1);val b=seed(p,2);portrait(f,cos=.6f)

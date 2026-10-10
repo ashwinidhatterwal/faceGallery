@@ -68,7 +68,7 @@ class PhotoDeletion(private val activity: Activity, private val finished: (Int) 
                     working = false
                     if (activity.isDestroyed) return@runOnUiThread
                     result.fold(onSuccess = { count ->
-                        if (count > 0) deleted++
+                        if (count > 0) { deleted++;MediaTags.forget(activity,setOf(uri.toString())) }
                         remaining.removeAt(0); advance()
                     }, onFailure = { error ->
                         if (Build.VERSION.SDK_INT == 29 && error is RecoverableSecurityException) {
@@ -85,7 +85,7 @@ class PhotoDeletion(private val activity: Activity, private val finished: (Int) 
         if (code != REQUEST) return false
         if (result != Activity.RESULT_OK) { complete("Deletion canceled."); return true }
         if (Build.VERSION.SDK_INT >= 30) {
-            deleted += batch; remaining = remaining.drop(batch).toMutableList()
+            MediaTags.forget(activity,remaining.take(batch).map{it.toString()}.toSet());deleted += batch; remaining = remaining.drop(batch).toMutableList()
         } // Android 10 grants access, then we must retry delete ourselves.
         batch = 0
         advance(); return true

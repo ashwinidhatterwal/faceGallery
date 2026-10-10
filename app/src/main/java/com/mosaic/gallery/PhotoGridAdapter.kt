@@ -87,10 +87,14 @@ class PhotoGridAdapter(private val context: Context, private val click: (PhotoRe
     }
     fun submitAlbums(photos:List<PhotoRecord>){
         val favorites=GalleryStyle.favorites(context);val groups=photos.groupBy{it.album}
+        val tags=MediaTags.read(context)
+        val tagged=mutableMapOf<String,MutableList<PhotoRecord>>()
+        photos.forEach{photo->tags.media[photo.uri.toString()].orEmpty().forEach{key->tagged.getOrPut(key){mutableListOf()}.add(photo)}}
+        val tagAlbums=tagged.entries.sortedBy{tags.names[it.key].orEmpty().lowercase()}.map{(key,members)->Item(members.first(),tags.names[key].orEmpty(),members.size,MediaTags.PREFIX+key)}
         val next=listOf(Item(photos.firstOrNull(),"All",photos.size,""),
             Item(photos.firstOrNull{it.uri.toString() in favorites},"Favorites",photos.count{it.uri.toString() in favorites},"@favorites"))+
             groups.entries.sortedWith(compareByDescending<Map.Entry<String,List<PhotoRecord>>>{it.key.equals("Camera",true)}.thenBy{it.key})
-                .map{Item(it.value.firstOrNull(),it.key.ifBlank{"Other"},it.value.size,it.key.ifBlank{"@other"})}
+                .map{Item(it.value.firstOrNull(),it.key.ifBlank{"Other"},it.value.size,it.key.ifBlank{"@other"})}+tagAlbums
         if(next==items)return
         items=next;notifyDataSetChanged()
     }

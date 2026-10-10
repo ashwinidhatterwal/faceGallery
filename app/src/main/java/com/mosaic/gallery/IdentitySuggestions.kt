@@ -2,6 +2,7 @@ package com.mosaic.gallery
 
 /** Suggestions require confirmation. Saved contact portraits never become gallery media. */
 object IdentitySuggestions {
+    const val CONTACT_FLOOR=.60f
     data class Choice(val id:Long,val name:String,val reference:GroupRules.Prototype?,val score:Float,val sharedPhotos:Set<String>,val contact:ContactNames.Contact?=null,val hintContact:ContactNames.Contact?=contact)
     data class Result(val member:GroupRules.Member,val person:Long?,val name:String,val choices:List<Choice>,val suggestions:List<Choice>)
     fun read(store:PeopleStore,key:GroupRules.Key,accessible:Set<String>,allowChange:Boolean=false):Result? = store.snapshot{Reader(store,accessible).read(key,allowChange)}
@@ -16,17 +17,18 @@ object IdentitySuggestions {
         }
     }
     /** Batch profile labels share one graph/reference read and use no new inference. */
-    fun profileNames(store:PeopleStore,covers:Map<Long,GroupRules.Key>,accessible:Set<String>,keepGoing:()->Boolean={true}):Map<Long,String> {
+    fun profileNames(store:PeopleStore,covers:Map<Long,GroupRules.Key>,accessible:Set<String>,keepGoing:()->Boolean={true}):Map<Long,String> = profileNamesCached(store,covers,accessible,keepGoing=keepGoing)
+    fun profileNamesCached(store:PeopleStore,covers:Map<Long,GroupRules.Key>,accessible:Set<String>,rows:List<GroupRules.Member>?=null,roots:Map<Long,Long>?=null,groups:List<GroupRules.Capsule>?=null,keepGoing:()->Boolean={true}):Map<Long,String> {
         if(covers.isEmpty())return emptyMap()
-        val reader=Reader(store,accessible)
+        val reader=Reader(store,accessible,rows,roots,groups)
         return buildMap{for((id,key) in covers){
             if(!keepGoing())throw java.util.concurrent.CancellationException()
             reader.read(key,false)?.suggestions?.firstOrNull()?.name?.let{put(id,it)}
         }}
     }
-    private class Reader(val store:PeopleStore,val accessible:Set<String>) {
-        val rows=store.members();val roots=store.components(rows);val established=store.established(roots);val labels=store.labels(roots)
-        val groups by lazy{store.capsules(rows,roots)};val contacts=store.contacts(roots)
+    private class Reader(val store:PeopleStore,val accessible:Set<String>,savedRows:List<GroupRules.Member>?=null,savedRoots:Map<Long,Long>?=null,savedGroups:List<GroupRules.Capsule>?=null) {
+        val rows=savedRows?:store.members();val roots=savedRoots?:store.components(rows);val established=store.established(roots);val labels=store.labels(roots)
+        val groups by lazy{savedGroups?:store.capsules(rows,roots)};val contacts=store.contacts(roots)
         val references by lazy{store.contactReferences()}
         val negatives=store.relations().filter{it.active && it.type=="cannot" && it.source=="user"}
         val cutoff=store.policy().review
@@ -36,7 +38,7 @@ object IdentitySuggestions {
         private val contactTargets by lazy {
             val targets=groups.filter{it.id !in established}.map{g->Target(g.id,null,g.prototypes.filter{it.member.key.uri in accessible}.map{it.vector})}
             references.associate{ref->ref.contact.lookup to targets.mapNotNull{t->t.vectors.map{FaceVectors.cosine(it,ref.vector)}.filter{it.isFinite()}.maxOrNull()?.let{t to it}}
-                .sortedWith(compareByDescending<Pair<Target,Float>>{it.second}.thenBy{it.first.person?:Long.MAX_VALUE}.thenBy{it.first.key?.uri.orEmpty()}.thenBy{it.first.key?.ordinal?:0}).firstOrNull()?.takeIf{it.second>=.5f}}
+                .sortedWith(compareByDescending<Pair<Target,Float>>{it.second}.thenBy{it.first.person?:Long.MAX_VALUE}.thenBy{it.first.key?.uri.orEmpty()}.thenBy{it.first.key?.ordinal?:0}).firstOrNull()?.takeIf{it.second>=CONTACT_FLOOR}}
         }
         fun read(key:GroupRules.Key,allowChange:Boolean,suggestions:Boolean=true):Result? {
             val member=rows.firstOrNull{it.key==key && it.key.uri in accessible}?:return null
@@ -61,7 +63,7 @@ object IdentitySuggestions {
             if(contactEvidence.isNotEmpty()){
                 for(ref in references){
                     val score=contactEvidence.maxOf{FaceVectors.cosine(it,ref.vector)}
-                    if(!score.isFinite() || score<.5f || veto(ref.contact.lookup))continue
+                    if(!score.isFinite() || score<CONTACT_FLOOR || veto(ref.contact.lookup))continue
                     if(!allowChange && person!=null){
                         val target=contactTargets[ref.contact.lookup]?.first?:continue
                         if(target.person!=person)continue
@@ -77,7 +79,7 @@ object IdentitySuggestions {
                 }
             }
             val sorted=choices.sortedWith(compareByDescending<Choice>{it.score}.thenBy{it.name})
-            return Result(member,null,"",sorted,sorted.filter{it.score>=if(it.hintContact!=null).5f else cutoff}.take(3))
+            return Result(member,null,"",sorted,sorted.filter{it.score>=if(it.hintContact!=null)CONTACT_FLOOR else cutoff}.take(3))
         }
     }
 }
