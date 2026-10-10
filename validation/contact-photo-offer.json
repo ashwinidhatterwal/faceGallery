@@ -1,0 +1,17 @@
+{
+  "versionCode": 48,
+  "versionName": "1.0.0-rc8",
+  "android_tests": 444,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "python_tests": 4,
+  "gradle_result": "BUILD SUCCESSFUL",
+  "lint": {
+    "Warning": 138
+  },
+  "physical_device_contact_provider_check": "pending",
+  "release_signed": false,
+  "apk_sha256": "0bac43bd34cc3364ad78ebcbbe60d1d883ce1e69f4a729ae6475c5702cc265ff",
+  "bundle_sha256": "aaf280411fa7e3166248d35c34ffa75c8d817a55d8b1641ad93d5360260149d3"
+}

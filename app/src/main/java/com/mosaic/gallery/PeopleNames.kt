@@ -44,10 +44,12 @@ class PeopleNames(private val activity:Activity) {
     private var portrait:android.graphics.Bitmap?=null
     private val avatars=android.util.LruCache<String,android.graphics.Bitmap>(32)
     private val avatarRequests=mutableSetOf<String>()
-    var requestingPermission=false;private set
+    private var readingPermission=false
+    private val photoOffer=ContactPhotoOffer(activity)
+    val requestingPermission get()=readingPermission || photoOffer.requestingPermission
     private var signal:CancellationSignal?=null;private var epoch=0;private var closed=false
     private val refresh=Runnable{suggest()}
-    fun show(value:String,contact:ContactNames.Contact?=null,preview:android.graphics.Bitmap?=null,face:FaceObservation?=null,save:(ContactNames.Choice)->Unit) {
+    fun show(value:String,contact:ContactNames.Contact?=null,preview:android.graphics.Bitmap?=null,face:FaceObservation?=null,photoKey:GroupRules.Key?=null,group:Long?=null,singleFace:Boolean=false,save:(ContactNames.Choice)->Unit) {
         dismiss();var linked=contact
         val root=GalleryStyle.panelRoot(activity)
         root.addView(GalleryStyle.text(activity,"Name this person",22f))
@@ -75,7 +77,7 @@ class PeopleNames(private val activity:Activity) {
         contactList.setOnItemClickListener{parent,_,position,_->(parent.getItemAtPosition(position) as? ContactNames.Contact)?.let{selectContact?.invoke(it)}}
         val actions=LinearLayout(activity)
         actions.addView(GalleryStyle.button(activity,"Cancel"){dismiss()},LinearLayout.LayoutParams(0,dp(48),1f))
-        actions.addView(GalleryStyle.button(activity,"Save",true){val name=field.text.toString().trim();if(name.isEmpty())field.error="Enter a name"else{save(ContactNames.Choice(name,linked));dismiss()}},LinearLayout.LayoutParams(0,dp(48),1f).apply{leftMargin=dp(10)})
+        actions.addView(GalleryStyle.button(activity,"Save",true){val name=field.text.toString().trim();if(name.isEmpty())field.error="Enter a name"else{save(ContactNames.Choice(name,linked));dismiss();linked?.let{photoOffer.offer(it,photoKey,group,singleFace)}}},LinearLayout.LayoutParams(0,dp(48),1f).apply{leftMargin=dp(10)})
         val body=LinearLayout(activity).apply{orientation=LinearLayout.VERTICAL}
         while(root.childCount>0){val child=root.getChildAt(0);root.removeView(child);body.addView(child)}
         root.addView(ScrollView(activity).apply{isFillViewport=false;addView(body)},LinearLayout.LayoutParams(-1,0,1f))
@@ -94,8 +96,8 @@ class PeopleNames(private val activity:Activity) {
         }
         updatePermission();schedule()
     }
-    private fun requestContacts(){requestingPermission=true;activity.requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS),PERMISSION)}
-    fun permissionResult(request:Int):Boolean{if(request!=PERMISSION)return false;requestingPermission=false;updatePermission();schedule();ContactRecognition.invalidate(activity);AutoPeople.ensure(activity,1_000);return true}
+    private fun requestContacts(){readingPermission=true;activity.requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS),PERMISSION)}
+    fun permissionResult(request:Int):Boolean{if(photoOffer.permissionResult(request))return true;if(request!=PERMISSION)return false;readingPermission=false;updatePermission();schedule();ContactRecognition.invalidate(activity);AutoPeople.ensure(activity,1_000);return true}
     private fun updatePermission(){contacts?.visibility=if(activity.checkSelfPermission(Manifest.permission.READ_CONTACTS)==PackageManager.PERMISSION_GRANTED)View.GONE else View.VISIBLE}
     private fun schedule(){epoch++;signal?.cancel();handler.removeCallbacks(refresh);if(dialog?.isShowing==true)handler.postDelayed(refresh,120)}
     private fun suggest(){
@@ -125,7 +127,7 @@ class PeopleNames(private val activity:Activity) {
             }
         }}
     }
-    fun dismiss(){dialog?.dismiss();epoch++;signal?.cancel();handler.removeCallbacks(refresh)}
-    fun close(){closed=true;dismiss();avatars.evictAll();worker.shutdownNow()}
+    fun dismiss(){photoOffer.dismiss();dialog?.dismiss();epoch++;signal?.cancel();handler.removeCallbacks(refresh)}
+    fun close(){closed=true;photoOffer.close();dismiss();avatars.evictAll();worker.shutdownNow()}
     private fun dp(value:Int)=GalleryStyle.dp(activity,value)
 }

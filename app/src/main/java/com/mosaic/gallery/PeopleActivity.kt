@@ -220,7 +220,7 @@ class PeopleActivity:Activity(){
         AlertDialog.Builder(this).setTitle(title).setMessage(if(intent.getBooleanExtra("wholeGroup",false) && mode=="assign")"Merge this folder?"else"${keys.size} faces").setNegativeButton("Cancel",null).setPositiveButton("Apply"){_,_->mutate{if(mode=="assign" && target!=null && keys.size==1 && intent.getBooleanExtra("wholeGroup",false))it.confirmIdentity(keys.single(),target)else it.correct(keys,target,mode=="create",mode=="exclude")}}.show()
     }
     private fun showProfiles(){cards.submit(profiles.filter{profileQuery.isBlank() || it.title.contains(profileQuery.trim(),true)})}
-    private fun renamePerson(id:Long){editGate.run{namesEditor.show(if(id in established)labels[id].orEmpty()else "",contactLinks[id]){choice->mutate{it.updatePerson(id,choice,true)}}}}
+    private fun renamePerson(id:Long){editGate.run{namesEditor.show(if(id in established)labels[id].orEmpty()else "",contactLinks[id],group=id){choice->mutate{it.updatePerson(id,choice,true)}}}}
     private fun openPerson(id:Long){startActivity(Intent(this,PeopleActivity::class.java).putExtra("person",id))}
     private fun identify(card:Card){if(card.person in established)openPerson(card.person!!)else identityChooser.show(card.member.key)}
     private fun openPhoto(photo:PhotoRecord){

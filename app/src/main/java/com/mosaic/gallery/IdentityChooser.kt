@@ -72,7 +72,7 @@ class IdentityChooser(private val activity:Activity,private val names:PeopleName
         }
         val actions=LinearLayout(activity)
         actions.addView(GalleryStyle.button(activity,"Name / contact",true){
-            names.show("",preview=images.firstOrNull(),face=data.member.face){choice->apply({if(changing)it.correct(setOf(key),create=true);it.nameFace(key,choice,true)},"Saved")};dismiss()
+            names.show("",preview=images.firstOrNull(),face=data.member.face,photoKey=key,singleFace=changing){choice->apply({if(changing)it.correct(setOf(key),create=true);it.nameFace(key,choice,true)},"Saved")};dismiss()
         },LinearLayout.LayoutParams(0,dp(48),1f))
         if(data.choices.isNotEmpty())actions.addView(GalleryStyle.button(activity,"Choose person"){chooseOther(key,data.choices,changing)},LinearLayout.LayoutParams(0,dp(48),1f).apply{leftMargin=dp(10)})
         root.addView(actions,LinearLayout.LayoutParams(-1,-2).apply{topMargin=dp(16)})

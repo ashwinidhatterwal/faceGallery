@@ -1,4 +1,4 @@
-# Face Gallery — Play release candidate 1.0.0-rc7 (47)
+# Face Gallery — Play release candidate 1.0.0-rc8 (48)
 
 Start with [publishing/START-HERE.md](publishing/START-HERE.md). This source includes store artwork, listing copy, policy/declaration drafts and release checks. Physical-device acceptance, public support details, privacy hosting and Play review remain owner steps.
 
@@ -82,7 +82,7 @@ The APK and AAB are signed using **the same key you provided**. On every manual 
 
 - Android Gradle Plugin 8.13.2, Kotlin 2.3.0, Gradle 8.13 and JDK 17.
 - Android API 36 and SDK Build Tools 35.0.0; minimum supported Android API 28 (Android 9).
-- App ID `com.mosaic.gallery`; version code 47; version name `1.0.0-rc7`.
+- App ID `com.mosaic.gallery`; version code 48; version name `1.0.0-rc8`.
 - `./gradlew :app:assembleDebug` makes a local debug APK, which Android signs with the developer machine's local debug key, not your Play upload key.
 
 ## Important release notes
@@ -115,3 +115,6 @@ Version code 40 fixes video access on updates, tracks permission changes and vid
 ## Publishing preparation (1.0.0-rc2)
 
 A first-launch/update disclosure precedes permission requests. Automatic photo recognition and contact matching require an affirmative choice. Browse only leaves automatic work disabled; existing names/results are retained. Automatic work uses persisted jobs, while foreground scans require an explicit recognition control. Consent preserves an existing permanent pause. See publishing/RELEASE-REVIEW.md.
+
+### Optional contact photo (build 48)
+When manually naming a photo face or a People group with a contact that has no photo, the app offers a themed crop preview. Use photo requests WRITE_CONTACTS on demand and adds a square JPEG to an editable local raw contact. Existing contact portraits are guarded by an asserted provider batch and never overwritten. Not now keeps the gallery link without a contact write. Selection reuses saved face quality/pose/focus scores and current accessible media; stale detections are excluded. It does not rerun detection or embeddings. Contacts account sync may upload the saved contact photo independently of Face Gallery. Real device/provider acceptance checks are listed in publishing/PHONE-ACCEPTANCE.md.

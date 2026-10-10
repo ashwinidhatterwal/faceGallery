@@ -33,3 +33,12 @@ Production sign-off is pending until these checks have real results. Automated e
 - Tap a suggested profile and confirm it. The grid label should become its saved name without `?` after the update. Dismissing the picker must keep it uncertain.
 - Switch away/back and search by the suggested name. The label and thumbnails should remain stable; unchanged portraits must not be encoded again.
 - Change/remove a contact photo or saved name and run the applicable sync. Check suggestions update after the source evidence changes.
+
+## Build 48: optional contact photos
+- From a photo face and from a People group, select a contact without a photo and Save. Confirm the compact themed crop preview.
+- Use photo asks for Write contacts only on this action; accepting saves a square face photo. Verify it in the Contacts app.
+- Not now, permission denial, leaving the page and a missing/read-only contact leave the contact unchanged; the gallery name/link still saves.
+- Existing contact photos never get replaced. Also test a contact gaining a photo while the prompt is open.
+- Try a linked group with multiple images, limited photo access and deleted/modified images. The crop should be clear, correctly proportioned and from the selected person.
+- Correcting an incorrectly grouped face must use that selected face, not another member of its old group.
+- No suitable readable face means no photo prompt; no recognition rerun or scheduled contact writes.

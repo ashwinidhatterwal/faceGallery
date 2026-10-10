@@ -1,3 +1,9 @@
+# Build 48 — optional contact photos
+
+Face Gallery 1.0.0-rc8, version code 48. User-confirmed contact photo assignment from the manual name/contact flow in photo faces and People groups. Existing photos are guarded by an atomic Contacts provider assertion; a read-only or missing contact fails safely. Square JPEG crops reuse stored quality/pose/focus scores and current accessible media; no detector/embedding reset. WRITE_CONTACTS is requested only after Use photo. Privacy copy discloses the contact write and possible account sync.
+
+Validation: 444 Android tests, 4 Python verifier tests, release APK/AAB builds and integrity checks passed. Lint has no errors or fatal issues. Releases built here are unsigned. Physical Contacts provider and runtime permission checks remain in PHONE-ACCEPTANCE.md.
+
 # Face Gallery 1.0.0-rc7 — build 47
 
 - Unnamed People grid profiles now display the best suggested contact/manual-group name with `?` beneath the face. Profiles without a suitable suggestion retain their Person label; saved names remain plain.
