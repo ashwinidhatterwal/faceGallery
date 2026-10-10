@@ -1,0 +1,20 @@
+{
+  "versionCode": 49,
+  "versionName": "1.0.0-rc9",
+  "database_version": 10,
+  "android_tests": 450,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "python_tests": 4,
+  "gradle_result": "BUILD SUCCESSFUL",
+  "lint": {
+    "Warning": 143
+  },
+  "recognition_policy_changed": false,
+  "portrait_inference_reset": false,
+  "release_signed": false,
+  "physical_device_contact_diagnosis": "requires new local diagnostics/report",
+  "apk_sha256": "1f5a48d3b68f79b1969c59fd674bb81a2f9e53d22129ac5e7d774a42ebf22104",
+  "bundle_sha256": "7a3c37809f5f5b132441419a19befd0e6289b4613db381aea3e1ef953e5ce104"
+}

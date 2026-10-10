@@ -5,7 +5,7 @@ import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class FaceStore(private val context:Context,private val now:()->Long=System::currentTimeMillis):SQLiteOpenHelper(context,"faces.db",null,9),java.io.Closeable{
+class FaceStore(private val context:Context,private val now:()->Long=System::currentTimeMillis):SQLiteOpenHelper(context,"faces.db",null,10),java.io.Closeable{
     fun contactReferences()=ContactRecognition.references(context,readableDatabase)
     companion object{
         const val MODEL="mlkit-16.1.7-accurate-1600-quality1"
@@ -34,6 +34,10 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
             ContactRecognition.create(db)
             val hasReason=db.rawQuery("PRAGMA table_info(contact_signatures)",null).use{c->var found=false;while(c.moveToNext())if(c.getString(1)=="reason")found=true;found}
             if(!hasReason)db.execSQL("ALTER TABLE contact_signatures ADD COLUMN reason TEXT NOT NULL DEFAULT ''")
+        }
+        if(oldVersion<10){
+            val hasDetail=db.rawQuery("PRAGMA table_info(contact_signatures)",null).use{c->var found=false;while(c.moveToNext())if(c.getString(1)=="detail")found=true;found}
+            if(!hasDetail)db.execSQL("ALTER TABLE contact_signatures ADD COLUMN detail TEXT NOT NULL DEFAULT ''")
         }
     }
     private fun createDurable(db:SQLiteDatabase){

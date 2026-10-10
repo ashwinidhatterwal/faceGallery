@@ -1,3 +1,11 @@
+# Build 49 — contact diagnosis and group evidence
+
+Face Gallery 1.0.0-rc9, version code 49, additive database version 10. Settings > Contact diagnostics provides a searchable virtual list of local contact names, provider photo availability, cached portrait status and measured rejection checks when recorded. Accepted portraits report best cached group similarity and the suggestion floor; this comparison alone does not promise a visible suggestion because access, manual corrections, links and top-three ranking still apply. Exported recognition reports include contact tags without names, lookup links, phone/email data, portrait images or embeddings.
+
+Fixed a suggestion guard that skipped cached contact matching when the selected face had no signature even though its manually grouped folder had usable accessible reference signatures. Detection/alignment thresholds, contact suggestion floor, auto-link thresholds and portrait model are unchanged. Old caches and gallery recognition are not reset; legacy combined rejection reasons remain explicitly unmeasured. New/changed scans add bounded quality measurements in the existing scan. Stage markers diagnose incomplete portrait sweeps versus interrupted group matching.
+
+Validation: 450 Android tests, 4 Python verifier tests, release APK/AAB integrity checks, builds and lint passed (no fatal/errors). Tests cover rejection measurements/reuse, private export, below-floor evidence, provider photo availability, group evidence without selected-face signature, and preserved cache migration. Device-specific exact causes require the new report. Release artifacts built locally are unsigned. See PHONE-ACCEPTANCE.md.
+
 # Build 48 — optional contact photos
 
 Face Gallery 1.0.0-rc8, version code 48. User-confirmed contact photo assignment from the manual name/contact flow in photo faces and People groups. Existing photos are guarded by an atomic Contacts provider assertion; a read-only or missing contact fails safely. Square JPEG crops reuse stored quality/pose/focus scores and current accessible media; no detector/embedding reset. WRITE_CONTACTS is requested only after Use photo. Privacy copy discloses the contact write and possible account sync.

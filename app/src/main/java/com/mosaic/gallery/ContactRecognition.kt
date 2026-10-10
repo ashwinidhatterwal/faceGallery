@@ -18,19 +18,19 @@ object ContactRecognition {
     private const val PORTRAIT_MODEL=FaceVectors.MODEL+"|portrait-v3"
     private const val PREVIOUS_PORTRAIT_MODEL=FaceVectors.MODEL+"|portrait-v2"
     private const val CHECK_INTERVAL=15*60_000L
-    data class Photo(val contact:ContactNames.Contact,val stamp:String,val portraitUri:String?=null,val id:Long=0)
+    data class Photo(val contact:ContactNames.Contact,val stamp:String,val portraitUri:String?=null,val id:Long=0,val hasPortrait:Boolean=true)
     data class Reference(val contact:ContactNames.Contact,val vector:FloatArray)
-    data class Cached(val stamp:String,val digest:String,val vector:FloatArray?,val status:String,val attempts:Int,val next:Long,val reason:String="")
+    data class Cached(val stamp:String,val digest:String,val vector:FloatArray?,val status:String,val attempts:Int,val next:Long,val reason:String="",val detail:String="")
     data class Result(val more:Boolean,val retryDelay:Long?)
     fun create(db:SQLiteDatabase){
-        db.execSQL("CREATE TABLE IF NOT EXISTS contact_signatures(lookup TEXT PRIMARY KEY,name TEXT NOT NULL,stamp TEXT NOT NULL,digest TEXT NOT NULL,model TEXT NOT NULL,status TEXT NOT NULL,vector BLOB,attempts INTEGER NOT NULL,next_time INTEGER NOT NULL,reason TEXT NOT NULL DEFAULT '')")
+        db.execSQL("CREATE TABLE IF NOT EXISTS contact_signatures(lookup TEXT PRIMARY KEY,name TEXT NOT NULL,stamp TEXT NOT NULL,digest TEXT NOT NULL,model TEXT NOT NULL,status TEXT NOT NULL,vector BLOB,attempts INTEGER NOT NULL,next_time INTEGER NOT NULL,reason TEXT NOT NULL DEFAULT '',detail TEXT NOT NULL DEFAULT '')")
         db.execSQL("CREATE TABLE IF NOT EXISTS contact_matches(person INTEGER PRIMARY KEY REFERENCES people(id) ON DELETE CASCADE,token TEXT NOT NULL)")
         createMatchCache(db)
     }
     fun createMatchCache(db:SQLiteDatabase){
         db.execSQL("CREATE TABLE IF NOT EXISTS contact_face_matches(uri TEXT NOT NULL,ordinal INTEGER NOT NULL,token TEXT NOT NULL,PRIMARY KEY(uri,ordinal),FOREIGN KEY(uri,ordinal) REFERENCES faces(uri,ordinal) ON DELETE CASCADE)")
     }
-    internal class PortraitRejected(val code:String):Exception(code)
+    internal class PortraitRejected(val code:String,val detail:String=""):Exception(code)
     private fun prefs(c:Context)=c.getSharedPreferences("contact-recognition",0)
     fun enabled(c:Context)=prefs(c).getBoolean("enabled",true)
     fun allowed(c:Context)=c.checkSelfPermission(Manifest.permission.READ_CONTACTS)==PackageManager.PERMISSION_GRANTED
@@ -52,7 +52,7 @@ object ContactRecognition {
     fun needsWork(c:Context):Boolean = available(c) && System.currentTimeMillis()>=prefs(c).getLong("provider-retry-at",0) && (prefs(c).getLong("provider-retry-at",0)>0 || prefs(c).getString("model","")!=PORTRAIT_MODEL || System.currentTimeMillis()-prefs(c).getLong("checked",0)>=CHECK_INTERVAL || prefs(c).getLong("faces",-1)!=AutoPeople.revision(c) || prefs(c).getLong("retry-at",0).let{it>0 && System.currentTimeMillis()>=it})
     fun clear(store:FaceStore){val removed=store.writableDatabase.delete("contact_signatures",null,null);store.writableDatabase.delete("contact_matches",null,null);store.writableDatabase.delete("contact_face_matches",null,null);if(removed>0)PeopleData.changed()}
     /** Aggregate local diagnostics only: no portrait pixels, contact identities or vectors. */
-    fun diagnostics(c:Context,store:FaceStore):org.json.JSONObject {
+    fun diagnostics(c:Context,store:FaceStore,names:Boolean=false):org.json.JSONObject {
         val counts=org.json.JSONObject();val reasons=org.json.JSONObject()
         store.readableDatabase.rawQuery("SELECT status,reason,COUNT(*) FROM contact_signatures GROUP BY status,reason",null).use{cursor->
             while(cursor.moveToNext()){
@@ -61,13 +61,15 @@ object ContactRecognition {
                 if(reason.isNotBlank())reasons.put(reason,reasons.optInt(reason)+count)
             }
         }
-        return org.json.JSONObject().put("contacts_permission",allowed(c)).put("contact_matching_enabled",enabled(c))
+        return org.json.JSONObject().put("app_version_code",c.packageManager.getPackageInfo(c.packageName,0).longVersionCode).put("contacts_permission",allowed(c)).put("contact_matching_enabled",enabled(c))
             .put("recognition_consent",RecognitionConsent.allowed(c)).put("background_enabled",AutoPeople.enabled(c))
             .put("portrait_policy",PORTRAIT_MODEL).put("last_complete_check_ms",prefs(c).getLong("checked",0))
+            .put("provider_queried_at_ms",prefs(c).getLong("provider-queried-at",0)).put("provider_portrait_count",prefs(c).getInt("provider-portrait-count",-1)).put("last_stage",prefs(c).getString("last-stage","not_recorded"))
+            .put("suggestion_floor",maxOf(.72f,PeopleStore(store).policy().review)).put("portrait_entries",ContactDiagnostics.entries(c,store,names))
             .put("provider_retry_at_ms",prefs(c).getLong("provider-retry-at",0)).put("portraits",counts).put("rejection_reasons",reasons)
     }
     /** One local query, no phone numbers, remote directories, or contact-count limit. */
-    fun photos(c:Context,signal:CancellationSignal,manual:Boolean=false):List<Photo> {
+    fun photos(c:Context,signal:CancellationSignal,manual:Boolean=false,includeMissing:Boolean=false):List<Photo> {
         if(!(if(manual)permitted(c)else available(c)))return emptyList()
         val columns=arrayOf(ContactsContract.Contacts._ID,ContactsContract.Contacts.LOOKUP_KEY,ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,ContactsContract.Contacts.PHOTO_ID,ContactsContract.Contacts.PHOTO_URI,ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP)
         return c.contentResolver.query(ContactsContract.Contacts.CONTENT_URI,columns,null,null,ContactsContract.Contacts._ID+" ASC",signal)?.use{cursor->buildList{
@@ -80,21 +82,23 @@ object ContactRecognition {
                 val timeIndex=cursor.getColumnIndex(ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP)
                 val photo=if(photoIndex>=0 && !cursor.isNull(photoIndex))cursor.getString(photoIndex)else ""
                 val uri=if(uriIndex>=0 && !cursor.isNull(uriIndex))cursor.getString(uriIndex)else ""
-                if(photo.isEmpty() && uri.isEmpty())continue
+                val hasPortrait=photo.isNotEmpty() || uri.isNotEmpty()
+                if(!hasPortrait && !includeMissing)continue
                 val time=if(timeIndex>=0 && !cursor.isNull(timeIndex))cursor.getString(timeIndex)else ""
-                add(Photo(ContactNames.Contact(ContactsContract.Contacts.getLookupUri(cursor.getLong(0),key).toString(),name),"$photo|$uri|$time",uri.takeIf{it.isNotBlank()},cursor.getLong(0)))
+                add(Photo(ContactNames.Contact(ContactsContract.Contacts.getLookupUri(cursor.getLong(0),key).toString(),name),"$photo|$uri|$time",uri.takeIf{it.isNotBlank()},cursor.getLong(0),hasPortrait))
             }
         }} ?: error("Contacts temporarily unavailable")
     }
-    fun cached(store:FaceStore,lookup:String):Cached?=store.readableDatabase.rawQuery("SELECT stamp,digest,vector,status,attempts,next_time,model,reason FROM contact_signatures WHERE lookup=?",arrayOf(lookup)).use{c->
+    internal fun referenceModel(model:String)=model==PORTRAIT_MODEL || model==PREVIOUS_PORTRAIT_MODEL
+    fun cached(store:FaceStore,lookup:String):Cached?=store.readableDatabase.rawQuery("SELECT stamp,digest,vector,status,attempts,next_time,model,reason,detail FROM contact_signatures WHERE lookup=?",arrayOf(lookup)).use{c->
         if(!c.moveToFirst())null
         else if(c.getString(6)!=PORTRAIT_MODEL && !(c.getString(6)==PREVIOUS_PORTRAIT_MODEL && c.getString(3)=="done" && !c.isNull(2)))null
-        else Cached(c.getString(0),c.getString(1),if(c.isNull(2))null else FaceVectors.unpack(c.getBlob(2)),c.getString(3),c.getInt(4),c.getLong(5),c.getString(7))
+        else Cached(c.getString(0),c.getString(1),if(c.isNull(2))null else FaceVectors.unpack(c.getBlob(2)),c.getString(3),c.getInt(4),c.getLong(5),c.getString(7),c.getString(8))
     }
     fun due(old:Cached?,photo:Photo,now:Long)=old==null || old.stamp!=photo.stamp || (old.status=="error" && old.attempts<3 && now>=old.next)
     private fun save(store:FaceStore,photo:Photo,value:Cached){
         store.writableDatabase.insertWithOnConflict("contact_signatures",null,ContentValues().apply{
-            put("lookup",photo.contact.lookup);put("name",photo.contact.name);put("stamp",value.stamp);put("digest",value.digest);put("model",PORTRAIT_MODEL);put("status",value.status);put("vector",value.vector?.let(FaceVectors::pack));put("attempts",value.attempts);put("next_time",value.next);put("reason",value.reason)
+            put("lookup",photo.contact.lookup);put("name",photo.contact.name);put("stamp",value.stamp);put("digest",value.digest);put("model",PORTRAIT_MODEL);put("status",value.status);put("vector",value.vector?.let(FaceVectors::pack));put("attempts",value.attempts);put("next_time",value.next);put("reason",value.reason);put("detail",value.detail)
         },SQLiteDatabase.CONFLICT_REPLACE)
         PeopleData.changed()
     }
@@ -121,21 +125,36 @@ object ContactRecognition {
         val side=minOf((face.right-face.left)*width,(face.bottom-face.top)*height)
         return side>=48 && face.sharpness>=8 && face.landmarks.size==10 && kotlin.math.abs(face.yaw)<=35 && kotlin.math.abs(face.pitch)<=30 && kotlin.math.abs(face.roll)<=40
     }
-    private fun encode(data:ByteArray,detector:FaceEngine,encoder:FaceEncoder):FloatArray? {
+    internal fun portraitFailures(width:Int,height:Int,face:FaceObservation):List<String> = buildList {
+        if(minOf((face.right-face.left)*width,(face.bottom-face.top)*height)<48)add("face_too_small")
+        if(face.sharpness<8)add("blurred_face")
+        if(face.landmarks.size!=10)add("missing_five_landmarks")
+        if(kotlin.math.abs(face.yaw)>35)add("yaw_too_large")
+        if(kotlin.math.abs(face.pitch)>30)add("pitch_too_large")
+        if(kotlin.math.abs(face.roll)>40)add("roll_too_large")
+    }
+    private fun encode(data:ByteArray,detector:FaceEngine,encoder:FaceEncoder,describe:(String)->Unit):FloatArray? {
         val bitmap=ImageDecoder.decodeBitmap(ImageDecoder.createSource(ByteBuffer.wrap(data))){decoder,info,_->
             val ratio=minOf(1.0,1200.0/maxOf(info.size.width,info.size.height),kotlin.math.sqrt(1_500_000.0/(info.size.width.toLong()*info.size.height)))
             decoder.setTargetSize(maxOf(1,(info.size.width*ratio).toInt()),maxOf(1,(info.size.height*ratio).toInt()));decoder.allocator=ImageDecoder.ALLOCATOR_SOFTWARE
         }
         try{
-            val face=detector.detectBitmap(bitmap,requireSingle=true).singleOrNull()?:throw PortraitRejected("single_face_not_detected")
-            if(!usablePortrait(bitmap.width,bitmap.height,face))throw PortraitRejected("portrait_quality_or_landmarks")
-            val aligned=FaceAlignment.portraitCrop(bitmap,face)?:throw PortraitRejected("portrait_alignment")
+            val faces=detector.detectBitmap(bitmap,requireSingle=true)
+            val detail=org.json.JSONObject().put("decoded_width",bitmap.width).put("decoded_height",bitmap.height)
+                .put("single_face_observations",faces.size)
+            val face=faces.singleOrNull()?:throw PortraitRejected("single_face_not_detected",detail.toString())
+            detail.put("face_side_px",minOf((face.right-face.left)*bitmap.width,(face.bottom-face.top)*bitmap.height))
+                .put("sharpness",face.sharpness).put("landmark_values",face.landmarks.size).put("yaw",face.yaw).put("pitch",face.pitch).put("roll",face.roll)
+                .put("failed_checks",org.json.JSONArray(portraitFailures(bitmap.width,bitmap.height,face)))
+            describe(detail.toString())
+            if(!usablePortrait(bitmap.width,bitmap.height,face))throw PortraitRejected("portrait_quality_or_landmarks",detail.toString())
+            val aligned=FaceAlignment.portraitCrop(bitmap,face)?:throw PortraitRejected("portrait_alignment",detail.toString())
             return try{encoder.encode(aligned)}finally{aligned.recycle()}
         }finally{bitmap.recycle()}
     }
     /** Testable bounded sweep. Failure consumes a retry; skipped portraits never repeat inference. */
     fun scan(store:FaceStore,photos:List<Photo>,keepGoing:()->Boolean,now:Long=System.currentTimeMillis(),limit:Int=4,
-        read:(Photo)->ByteArray,infer:(ByteArray)->FloatArray?):Boolean {
+        read:(Photo)->ByteArray,infer:(ByteArray)->FloatArray?,detail:()->String={""}):Boolean {
         var processed=0
         for(photo in photos){
             if(!keepGoing())return false
@@ -151,11 +170,11 @@ object ContactRecognition {
                 val data=read(photo);digest=hash(data)
                 // A name/phone change updates the provider timestamp too. Reuse identical pixels.
                 if(old!=null && old.digest==digest && old.status!="error")old.copy(stamp=photo.stamp)
-                else {val vector=infer(data);Cached(photo.stamp,digest,vector,if(vector==null)"skipped"else"done",0,0,if(vector==null)"unusable_portrait"else "")}
+                else {val vector=infer(data);Cached(photo.stamp,digest,vector,if(vector==null)"skipped"else"done",0,0,if(vector==null)"unusable_portrait"else "",detail())}
             }
             if(!keepGoing())return false
             result.onSuccess{save(store,photo,it)}.onFailure{
-                if(it is PortraitRejected)save(store,photo,Cached(photo.stamp,digest,null,"skipped",0,0,it.code))
+                if(it is PortraitRejected)save(store,photo,Cached(photo.stamp,digest,null,"skipped",0,0,it.code,it.detail))
                 else {
                     val attempts=if(old?.stamp==photo.stamp)old.attempts+1 else 1
                     save(store,photo,Cached(photo.stamp,"",null,"error",attempts,now+if(attempts==1)60_000L else 5*60_000L,it.javaClass.simpleName))
@@ -236,6 +255,7 @@ object ContactRecognition {
             return Result(false,wake?.let{it-now})
         }
         val photos=photos(c,signal,manual)
+        prefs(c).edit().putLong("provider-queried-at",System.currentTimeMillis()).putInt("provider-portrait-count",photos.size).putString("last-stage","scanning_portraits").apply()
         // Only a successful complete provider query may discard removed contact references.
         val live=photos.map{it.contact.lookup}.toSet()
         val stale=buildList{store.readableDatabase.rawQuery("SELECT lookup FROM contact_signatures",null).use{while(it.moveToNext())if(it.getString(0) !in live)add(it.getString(0))}}
@@ -243,15 +263,21 @@ object ContactRecognition {
         if(stale.isNotEmpty())PeopleData.changed()
         var detector:FaceEngine?=null;var encoder:FaceEncoder?=null
         try{
+            var lastDetail=""
             fun active()=keepGoing() && permittedRun() && !signal.isCanceled
             val complete=scan(store,photos,::active,limit=limit,read={readPhoto(c,it,signal)},infer={data->
-                val d=detector?:FaceEngine(c).also{detector=it};val e=encoder?:FaceEncoder(c,1).also{encoder=it};encode(data,d,e)
-            })
+                val d=detector?:FaceEngine(c).also{detector=it};val e=encoder?:FaceEncoder(c,1).also{encoder=it};lastDetail="";encode(data,d,e){lastDetail=it}
+            },detail={lastDetail})
+            prefs(c).edit().putString("last-stage",if(complete)"portraits_scanned"else"portrait_batch_incomplete").apply()
             val references=photos.mapNotNull{p->cached(store,p.contact.lookup)?.takeIf{it.stamp==p.stamp && it.status=="done"}?.vector?.let{Reference(p.contact,it)}}
             val retry=store.readableDatabase.rawQuery("SELECT MIN(next_time) FROM contact_signatures WHERE status='error' AND attempts<3 AND model=?",arrayOf(PORTRAIT_MODEL)).use{if(it.moveToFirst() && !it.isNull(0))maxOf(60_000L,it.getLong(0)-System.currentTimeMillis())else null}
             // Never name someone against a partially scanned address book: an unseen portrait
             // could be the competing contact. Let bounded transient retries finish first too.
-            if(complete && retry==null && active() && match(store,references,::active)>0)AutoPeople.dirty(c)
+            if(complete && retry==null && active()){
+                prefs(c).edit().putString("last-stage","matching_groups").apply()
+                if(match(store,references,::active)>0)AutoPeople.dirty(c)
+                prefs(c).edit().putString("last-stage",if(active())"complete"else"matching_interrupted").apply()
+            }else if(retry!=null)prefs(c).edit().putString("last-stage","waiting_for_portrait_retry").apply()
             if(!permittedRun()){if(!manual && !permitted(c))clear(store);return Result(false,null)}
             if(complete && active())prefs(c).edit().remove("provider-retry-at").putLong("checked",System.currentTimeMillis()).putLong("retry-at",retry?.let{System.currentTimeMillis()+it}?:0).putLong("faces",AutoPeople.revision(c)).putString("model",PORTRAIT_MODEL).apply()
             return Result(!complete || !active(),retry)

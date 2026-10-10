@@ -29,6 +29,7 @@
         android:roundIcon="@mipmap/ic_launcher"
         android:supportsRtl="true"
         android:theme="@style/GalleryTheme">
+        <activity android:name=".ContactDiagnosticsActivity" android:exported="false" />
         <activity android:name=".SettingsActivity" android:exported="false" />
         <activity android:name=".PrivacyActivity" android:exported="false" />
         <activity android:name=".PhotoEditorActivity" android:exported="false"

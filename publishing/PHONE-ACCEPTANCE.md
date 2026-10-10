@@ -42,3 +42,10 @@ Production sign-off is pending until these checks have real results. Automated e
 - Try a linked group with multiple images, limited photo access and deleted/modified images. The crop should be clear, correctly proportioned and from the selected person.
 - Correcting an incorrectly grouped face must use that selected face, not another member of its old group.
 - No suitable readable face means no photo prompt; no recognition rerun or scheduled contact writes.
+
+## Build 49: contact diagnosis and group evidence
+- Open Settings > Contact diagnostics. Find the affected contact by name. Inspect rejected/accepted/not-processed result, recorded failed checks, whether its photo changed and best cached similarity.
+- Older rejected caches may have only a combined quality/landmark reason. Those remain reused; the screen must not invent individual checks or rerun unchanged recognition.
+- Export recognition report from People. Match the screen's Report ID to contact_processing.portrait_entries[].contact_tag. The exported data must contain no contact names, lookup URIs, phone numbers, email addresses, face images or signatures.
+- Check a manually grouped photo face whose signature is missing but another accessible group photo has one: cached contact hints should use that group evidence. Explicit different-person decisions and limited media access must still suppress blocked evidence.
+- Upgrade a build 48 database: verify contacts/groups/corrections remain and completed portraits are reused.

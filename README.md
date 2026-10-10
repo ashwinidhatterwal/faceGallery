@@ -1,4 +1,4 @@
-# Face Gallery — Play release candidate 1.0.0-rc8 (48)
+# Face Gallery — Play release candidate 1.0.0-rc9 (49)
 
 Start with [publishing/START-HERE.md](publishing/START-HERE.md). This source includes store artwork, listing copy, policy/declaration drafts and release checks. Physical-device acceptance, public support details, privacy hosting and Play review remain owner steps.
 
@@ -82,7 +82,7 @@ The APK and AAB are signed using **the same key you provided**. On every manual 
 
 - Android Gradle Plugin 8.13.2, Kotlin 2.3.0, Gradle 8.13 and JDK 17.
 - Android API 36 and SDK Build Tools 35.0.0; minimum supported Android API 28 (Android 9).
-- App ID `com.mosaic.gallery`; version code 48; version name `1.0.0-rc8`.
+- App ID `com.mosaic.gallery`; version code 49; version name `1.0.0-rc9`.
 - `./gradlew :app:assembleDebug` makes a local debug APK, which Android signs with the developer machine's local debug key, not your Play upload key.
 
 ## Important release notes
@@ -118,3 +118,6 @@ A first-launch/update disclosure precedes permission requests. Automatic photo r
 
 ### Optional contact photo (build 48)
 When manually naming a photo face or a People group with a contact that has no photo, the app offers a themed crop preview. Use photo requests WRITE_CONTACTS on demand and adds a square JPEG to an editable local raw contact. Existing contact portraits are guarded by an asserted provider batch and never overwritten. Not now keeps the gallery link without a contact write. Selection reuses saved face quality/pose/focus scores and current accessible media; stale detections are excluded. It does not rerun detection or embeddings. Contacts account sync may upload the saved contact photo independently of Face Gallery. Real device/provider acceptance checks are listed in publishing/PHONE-ACCEPTANCE.md.
+
+### Contact diagnosis (build 49)
+Settings > Contact diagnostics shows named local portrait status and best cached group similarity. People > Export recognition report now includes pseudonymous contact entries and batch stage checkpoints. New/changed portrait scans record dimensions, face size, focus, landmark count, pose and the failed quality checks. The portrait policy, embedding model, recognition thresholds and retry rules are unchanged. The additive database v10 migration preserves all cached results. Old rejection records explicitly have no individual measurements and are reused. Unnamed groups can suggest cached contacts using their other accessible reference photos even if the currently selected face has no signature.

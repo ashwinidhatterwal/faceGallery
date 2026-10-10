@@ -47,10 +47,10 @@ object IdentitySuggestions {
                 val reference=visible.prototypes.firstOrNull{it.member.person==best?.witness}?:visible.prototypes.maxByOrNull{it.member.face.score}
                 Choice(target.id,labels[target.id].orEmpty(),reference,best?.score?:-1f,(source?.takeUnless{allowChange}?.photos?:setOf(key.uri)).intersect(target.photos))
             }.toMutableList()
-            if(vector!=null){
-                val evidence=listOf(vector)+(source?.takeUnless{allowChange}?.prototypes?.filter{it.member.key.uri in accessible}?.map{it.vector}.orEmpty())
+            val contactEvidence=listOfNotNull(vector)+(source?.takeUnless{allowChange}?.prototypes?.filter{it.member.key.uri in accessible}?.map{it.vector}.orEmpty())
+            if(contactEvidence.isNotEmpty()){
                 for(ref in references){
-                    val score=evidence.maxOf{FaceVectors.cosine(it,ref.vector)}
+                    val score=contactEvidence.maxOf{FaceVectors.cosine(it,ref.vector)}
                     // Contact portraits have less gallery context: keep a higher suggestion floor.
                     if(!score.isFinite() || score<maxOf(.72f,cutoff))continue
                     val linked=contacts.filterValues{it.lookup==ref.contact.lookup}.keys
