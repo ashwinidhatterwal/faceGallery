@@ -22,6 +22,20 @@ class ContactSuggestionsTest {
     private fun portrait(f:FaceStore,id:Int=1,cos:Float=.8f){ContactRecognition.scan(f,listOf(ContactRecognition.Photo(contact(id),"portrait")),{true},read={byteArrayOf(id.toByte())},infer={vector(cos)})}
     @Before fun before(){app.deleteDatabase("faces.db");RecognitionConsent.accept(app);Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_CONTACTS);FaceJobs.publish(FaceJobs.State());app.getSharedPreferences("contact-recognition",0).edit().clear().commit();app.getSharedPreferences("automatic-people",0).edit().clear().commit()}
     @After fun after(){app.deleteDatabase("faces.db")}
+    @Test fun smallPortraitSuggestsInBothViewsAndNeverAutomaticallyNames(){FaceStore(app).use{f->
+        add(f,1);val p=PeopleStore(f);val id=seed(p,1)
+        ContactRecognition.scan(f,listOf(ContactRecognition.Photo(contact(),"small")),{true},read={byteArrayOf(1)},infer={vector()},detail={"{\"suggestion_only\":true}"})
+        val references=f.contactReferences();assertFalse(references.single().automaticEligible)
+        assertEquals(0,ContactRecognition.match(f,references,{true}));val visible=setOf(key(1).uri)
+        assertEquals("Contact 1",IdentitySuggestions.profileNames(p,mapOf(id to key(1)),visible)[id])
+        assertEquals("Contact 1",IdentitySuggestions.photo(p,key(1).uri,visible).single().suggestedName)
+        assertTrue(p.contacts().isEmpty());assertTrue(p.names().isEmpty())
+    }}
+    @Test fun suggestionOnlyCompetingContactStillVetoesAmbiguousAutomaticName(){FaceStore(app).use{f->
+        add(f,1);val p=PeopleStore(f);seed(p,1)
+        val refs=listOf(ContactRecognition.Reference(contact(),vector(.98f)),ContactRecognition.Reference(contact(2),vector(.97f),false))
+        assertEquals(0,ContactRecognition.match(f,refs,{true}));assertTrue(p.contacts().isEmpty())
+    }}
     @Test fun uncertainContactAppearsWithoutNamingOrAddingPhotos(){FaceStore(app).use{f->add(f,1);portrait(f);val p=PeopleStore(f);val before=f.summary();assertEquals(0,ContactRecognition.match(f,listOf(ContactRecognition.Reference(contact(),vector(.8f))),{true}));val data=IdentitySuggestions.read(p,key(1),setOf(key(1).uri))!!;assertEquals(contact(),data.suggestions.single().contact);assertEquals("Contact 1",PhotoPeople.read(p,key(1).uri,setOf(key(1).uri)).single().suggestedName);assertTrue(p.names().isEmpty());assertEquals(before,f.summary())}}
     @Test fun manuallyNamedAndContactSuggestionsShareRanking(){FaceStore(app).use{f->add(f,1);add(f,2,.75f);val p=PeopleStore(f);val named=seed(p,2);p.rename(named,"My friend");portrait(f,cos=.8f);val data=IdentitySuggestions.read(p,key(1),setOf(key(1).uri,key(2).uri))!!;assertEquals(listOf("Contact 1","My friend"),data.suggestions.map{it.name});assertEquals(named,data.suggestions.last().id)}}
     @Test fun linkedContactIsOneGroupChoiceAndKeepsCustomName(){FaceStore(app).use{f->add(f,1);add(f,2,.75f);val p=PeopleStore(f);val named=seed(p,2);p.updatePerson(named,ContactNames.Choice("Papa",contact()));portrait(f,cos=.8f);val data=IdentitySuggestions.read(p,key(1),setOf(key(1).uri,key(2).uri))!!;assertEquals(1,data.suggestions.size);assertEquals(named,data.suggestions.single().id);assertEquals("Papa",data.suggestions.single().name);assertNull(data.suggestions.single().contact)}}

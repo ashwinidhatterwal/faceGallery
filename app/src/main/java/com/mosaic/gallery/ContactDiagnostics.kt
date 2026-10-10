@@ -26,7 +26,7 @@ object ContactDiagnostics {
                 else entry.put("portrait_checks_recorded",false)
                 live.firstOrNull{it.contact.lookup==lookup}?.let{entry.put("portrait_changed_since_scan",it.stamp!=c.getString(2));entry.put("provider_has_photo",it.hasPortrait)}
                 val eligible=c.getString(4)=="done" && !c.isNull(9) && ContactRecognition.referenceModel(c.getString(3)) && ContactRecognition.permitted(context)
-                entry.put("reference_eligible",eligible)
+                entry.put("reference_eligible",eligible).put("automatic_naming_eligible",eligible && ContactRecognition.automaticEligible(c.getString(6)))
                 if(eligible) {
                     val vector=FaceVectors.unpack(c.getBlob(9))
                     val ranked=groups.mapNotNull{group->group.prototypes.map{FaceVectors.cosine(vector,it.vector)}.filter{it.isFinite()}.maxOrNull()?.let{group to it}}.sortedByDescending{it.second}
@@ -64,7 +64,7 @@ object ContactDiagnostics {
                 "portrait_alignment"->"Facial landmarks could not be aligned safely"
                 else->"Rejected by the portrait quality checks; this earlier scan has no individual measurements"
             }
-            "done"->if(!entry.optBoolean("reference_eligible"))"Saved portrait unavailable for suggestions: check permission, consent and model"else if(entry.has("best_cached_similarity"))"Usable portrait · best cached similarity %.3f · suggestion floor %.3f".format(java.util.Locale.ROOT,entry.getDouble("best_cached_similarity"),entry.getDouble("suggestion_floor"))else "Usable portrait · no gallery reference signatures available"
+            "done"->if(entry.optJSONObject("portrait_checks")?.optBoolean("suggestion_only")==true)"Small portrait · confirmation-only name suggestions"else if(!entry.optBoolean("reference_eligible"))"Saved portrait unavailable for suggestions: check permission, consent and model"else if(entry.has("best_cached_similarity"))"Usable portrait · best cached similarity %.3f · suggestion floor %.3f".format(java.util.Locale.ROOT,entry.getDouble("best_cached_similarity"),entry.getDouble("suggestion_floor"))else "Usable portrait · no gallery reference signatures available"
             else->"No processing result recorded"
         }
     }

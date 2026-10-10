@@ -125,6 +125,43 @@ class ContactRecognitionTest {
         var encodes=0;fun run()=ContactRecognition.scan(store,listOf(photo()),{true},read={byteArrayOf(1)},infer={encodes++;vector()})
         run();store.writableDatabase.execSQL("UPDATE contact_signatures SET model=?,status='skipped',vector=NULL",arrayOf(FaceVectors.MODEL));run();run();assertEquals(2,encodes);assertEquals("done",ContactRecognition.cached(store,contact().lookup)!!.status)
     }}
+    @Test fun displayPhotoWinsOverProviderThumbnail(){
+        val full=java.io.File(app.cacheDir,"full-contact").apply{writeBytes(byteArrayOf(8,9))}
+        ShadowContentResolver.registerProviderInternal(ContactsContractAuthority,object:ContentProvider(){
+            override fun onCreate()=true
+            override fun openAssetFile(uri:Uri,mode:String):android.content.res.AssetFileDescriptor {
+                assertEquals("content://com.android.contacts/contacts/1/display_photo",uri.toString())
+                return android.content.res.AssetFileDescriptor(android.os.ParcelFileDescriptor.open(full,android.os.ParcelFileDescriptor.MODE_READ_ONLY),0,full.length())
+            }
+            override fun query(u:Uri,p:Array<out String>?,s:String?,a:Array<out String>?,o:String?):Cursor?=null
+            override fun getType(u:Uri)="image/jpeg"
+            override fun insert(u:Uri,v:ContentValues?):Uri?=null
+            override fun delete(u:Uri,s:String?,a:Array<out String>?)=0
+            override fun update(u:Uri,v:ContentValues?,s:String?,a:Array<out String>?)=0
+        })
+        Shadows.shadowOf(app.contentResolver).registerInputStreamSupplier(Uri.parse("content://com.android.contacts/contacts/1/display_photo")){full.inputStream()}
+        Shadows.shadowOf(app.contentResolver).registerInputStreamSupplier(Uri.parse("content://portraits/thumb")){error("Thumbnail must not be read")}
+        assertArrayEquals(byteArrayOf(8,9),ContactRecognition.readPhoto(app,photo().copy(id=1,portraitUri="content://portraits/thumb")))
+    }
+    @Test fun smallSharpPortraitIsSuggestionOnlyButOtherQualityFailuresStillReject(){
+        val small=face.copy(left=0f,top=0f,right=34f/96, bottom=34f/96,landmarks=List(10){.3f})
+        assertTrue(ContactRecognition.usableSuggestionPortrait(96,96,small));assertFalse(ContactRecognition.usablePortrait(96,96,small))
+        assertFalse(ContactRecognition.usableSuggestionPortrait(96,96,small.copy(sharpness=2f)))
+        assertFalse(ContactRecognition.usableSuggestionPortrait(96,96,small.copy(sharpness=Float.NaN)))
+        assertFalse(ContactRecognition.usableSuggestionPortrait(96,96,small.copy(right=.3f)))
+        assertFalse(ContactRecognition.automaticEligible("{\"suggestion_only\":true}"))
+        FaceStore(app).use{store->
+            group(store,1);assertEquals(0,ContactRecognition.match(store,listOf(reference().copy(automaticEligible=false)),{true}))
+            assertTrue(PeopleStore(store).contacts().isEmpty())
+        }
+    }
+    @Test fun v3RecordedSmallFaceRejectionIsRecheckedOnceAndSuccessfulV3IsReused(){FaceStore(app).use{store->
+        var reads=0;var encodes=0
+        fun scan()=ContactRecognition.scan(store,listOf(photo()),{true},read={reads++;byteArrayOf(1)},infer={encodes++;vector()})
+        scan();store.writableDatabase.execSQL("UPDATE contact_signatures SET model=?",arrayOf(FaceVectors.MODEL+"|portrait-v3"));scan();assertEquals(1,reads)
+        store.writableDatabase.execSQL("UPDATE contact_signatures SET status='skipped',vector=NULL,detail='{\"failed_checks\":[\"face_too_small\"]}'")
+        repeat(3){scan()};assertEquals(2,reads);assertEquals(2,encodes)
+    }}
     @Test fun usableContactThumbnailIsNotRejectedByGalleryResolutionScore(){
         val portrait=face.copy(left=0f,top=0f,right=.5f,bottom=.5f,score=.5f,authority="Support",landmarks=List(10){.3f})
         assertTrue(ContactRecognition.usablePortrait(120,120,portrait));assertFalse(ContactRecognition.usablePortrait(80,80,portrait));assertFalse(ContactRecognition.usablePortrait(120,120,portrait.copy(sharpness=2f)))
@@ -136,7 +173,7 @@ class ContactRecognitionTest {
     }}
     @Test fun contactRetryDeadlineIsNotSuppressedByCompletedSweepCache(){
         Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_CONTACTS)
-        val p=app.getSharedPreferences("contact-recognition",0);p.edit().putString("model",FaceVectors.MODEL+"|portrait-v3").putLong("checked",System.currentTimeMillis()).putLong("faces",AutoPeople.revision(app)).putLong("retry-at",System.currentTimeMillis()+60000).commit();assertFalse(ContactRecognition.needsWork(app))
+        val p=app.getSharedPreferences("contact-recognition",0);p.edit().putString("model",FaceVectors.MODEL+"|portrait-v4").putLong("checked",System.currentTimeMillis()).putLong("faces",AutoPeople.revision(app)).putLong("retry-at",System.currentTimeMillis()+60000).commit();assertFalse(ContactRecognition.needsWork(app))
         FaceStore(app).use{store->assertTrue(ContactRecognition.run(app,store,{true}).retryDelay!! in 1..60000)}
         p.edit().putLong("retry-at",System.currentTimeMillis()-1).commit();assertTrue(ContactRecognition.needsWork(app))
     }
