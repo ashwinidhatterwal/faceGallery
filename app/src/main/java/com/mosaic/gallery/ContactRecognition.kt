@@ -15,16 +15,22 @@ import java.security.MessageDigest
 /** Contact portraits are references, not gallery photos. Never insert them into the face graph. */
 object ContactRecognition {
     private const val POLICY="contacts-v2"
-    private const val PORTRAIT_MODEL=FaceVectors.MODEL+"|portrait-v2"
+    private const val PORTRAIT_MODEL=FaceVectors.MODEL+"|portrait-v3"
+    private const val PREVIOUS_PORTRAIT_MODEL=FaceVectors.MODEL+"|portrait-v2"
     private const val CHECK_INTERVAL=15*60_000L
     data class Photo(val contact:ContactNames.Contact,val stamp:String,val portraitUri:String?=null,val id:Long=0)
     data class Reference(val contact:ContactNames.Contact,val vector:FloatArray)
-    data class Cached(val stamp:String,val digest:String,val vector:FloatArray?,val status:String,val attempts:Int,val next:Long)
+    data class Cached(val stamp:String,val digest:String,val vector:FloatArray?,val status:String,val attempts:Int,val next:Long,val reason:String="")
     data class Result(val more:Boolean,val retryDelay:Long?)
     fun create(db:SQLiteDatabase){
-        db.execSQL("CREATE TABLE IF NOT EXISTS contact_signatures(lookup TEXT PRIMARY KEY,name TEXT NOT NULL,stamp TEXT NOT NULL,digest TEXT NOT NULL,model TEXT NOT NULL,status TEXT NOT NULL,vector BLOB,attempts INTEGER NOT NULL,next_time INTEGER NOT NULL)")
+        db.execSQL("CREATE TABLE IF NOT EXISTS contact_signatures(lookup TEXT PRIMARY KEY,name TEXT NOT NULL,stamp TEXT NOT NULL,digest TEXT NOT NULL,model TEXT NOT NULL,status TEXT NOT NULL,vector BLOB,attempts INTEGER NOT NULL,next_time INTEGER NOT NULL,reason TEXT NOT NULL DEFAULT '')")
         db.execSQL("CREATE TABLE IF NOT EXISTS contact_matches(person INTEGER PRIMARY KEY REFERENCES people(id) ON DELETE CASCADE,token TEXT NOT NULL)")
+        createMatchCache(db)
     }
+    fun createMatchCache(db:SQLiteDatabase){
+        db.execSQL("CREATE TABLE IF NOT EXISTS contact_face_matches(uri TEXT NOT NULL,ordinal INTEGER NOT NULL,token TEXT NOT NULL,PRIMARY KEY(uri,ordinal),FOREIGN KEY(uri,ordinal) REFERENCES faces(uri,ordinal) ON DELETE CASCADE)")
+    }
+    internal class PortraitRejected(val code:String):Exception(code)
     private fun prefs(c:Context)=c.getSharedPreferences("contact-recognition",0)
     fun enabled(c:Context)=prefs(c).getBoolean("enabled",true)
     fun allowed(c:Context)=c.checkSelfPermission(Manifest.permission.READ_CONTACTS)==PackageManager.PERMISSION_GRANTED
@@ -36,7 +42,22 @@ object ContactRecognition {
     }
     fun invalidate(c:Context){prefs(c).edit().remove("checked").remove("provider-retry-at").apply()}
     fun needsWork(c:Context):Boolean = available(c) && System.currentTimeMillis()>=prefs(c).getLong("provider-retry-at",0) && (prefs(c).getLong("provider-retry-at",0)>0 || prefs(c).getString("model","")!=PORTRAIT_MODEL || System.currentTimeMillis()-prefs(c).getLong("checked",0)>=CHECK_INTERVAL || prefs(c).getLong("faces",-1)!=AutoPeople.revision(c) || prefs(c).getLong("retry-at",0).let{it>0 && System.currentTimeMillis()>=it})
-    fun clear(store:FaceStore){store.writableDatabase.delete("contact_signatures",null,null);store.writableDatabase.delete("contact_matches",null,null)}
+    fun clear(store:FaceStore){store.writableDatabase.delete("contact_signatures",null,null);store.writableDatabase.delete("contact_matches",null,null);store.writableDatabase.delete("contact_face_matches",null,null)}
+    /** Aggregate local diagnostics only: no portrait pixels, contact identities or vectors. */
+    fun diagnostics(c:Context,store:FaceStore):org.json.JSONObject {
+        val counts=org.json.JSONObject();val reasons=org.json.JSONObject()
+        store.readableDatabase.rawQuery("SELECT status,reason,COUNT(*) FROM contact_signatures GROUP BY status,reason",null).use{cursor->
+            while(cursor.moveToNext()){
+                val status=cursor.getString(0);val reason=cursor.getString(1);val count=cursor.getInt(2)
+                counts.put(status,counts.optInt(status)+count)
+                if(reason.isNotBlank())reasons.put(reason,reasons.optInt(reason)+count)
+            }
+        }
+        return org.json.JSONObject().put("contacts_permission",allowed(c)).put("contact_matching_enabled",enabled(c))
+            .put("recognition_consent",RecognitionConsent.allowed(c)).put("background_enabled",AutoPeople.enabled(c))
+            .put("portrait_policy",PORTRAIT_MODEL).put("last_complete_check_ms",prefs(c).getLong("checked",0))
+            .put("provider_retry_at_ms",prefs(c).getLong("provider-retry-at",0)).put("portraits",counts).put("rejection_reasons",reasons)
+    }
     /** One local query, no phone numbers, remote directories, or contact-count limit. */
     fun photos(c:Context,signal:CancellationSignal):List<Photo> {
         if(!available(c))return emptyList()
@@ -57,13 +78,15 @@ object ContactRecognition {
             }
         }} ?: error("Contacts temporarily unavailable")
     }
-    fun cached(store:FaceStore,lookup:String):Cached?=store.readableDatabase.rawQuery("SELECT stamp,digest,vector,status,attempts,next_time,model FROM contact_signatures WHERE lookup=?",arrayOf(lookup)).use{c->
-        if(!c.moveToFirst() || c.getString(6)!=PORTRAIT_MODEL)null else Cached(c.getString(0),c.getString(1),if(c.isNull(2))null else FaceVectors.unpack(c.getBlob(2)),c.getString(3),c.getInt(4),c.getLong(5))
+    fun cached(store:FaceStore,lookup:String):Cached?=store.readableDatabase.rawQuery("SELECT stamp,digest,vector,status,attempts,next_time,model,reason FROM contact_signatures WHERE lookup=?",arrayOf(lookup)).use{c->
+        if(!c.moveToFirst())null
+        else if(c.getString(6)!=PORTRAIT_MODEL && !(c.getString(6)==PREVIOUS_PORTRAIT_MODEL && c.getString(3)=="done" && !c.isNull(2)))null
+        else Cached(c.getString(0),c.getString(1),if(c.isNull(2))null else FaceVectors.unpack(c.getBlob(2)),c.getString(3),c.getInt(4),c.getLong(5),c.getString(7))
     }
     fun due(old:Cached?,photo:Photo,now:Long)=old==null || old.stamp!=photo.stamp || (old.status=="error" && old.attempts<3 && now>=old.next)
     private fun save(store:FaceStore,photo:Photo,value:Cached){
         store.writableDatabase.insertWithOnConflict("contact_signatures",null,ContentValues().apply{
-            put("lookup",photo.contact.lookup);put("name",photo.contact.name);put("stamp",value.stamp);put("digest",value.digest);put("model",PORTRAIT_MODEL);put("status",value.status);put("vector",value.vector?.let(FaceVectors::pack));put("attempts",value.attempts);put("next_time",value.next)
+            put("lookup",photo.contact.lookup);put("name",photo.contact.name);put("stamp",value.stamp);put("digest",value.digest);put("model",PORTRAIT_MODEL);put("status",value.status);put("vector",value.vector?.let(FaceVectors::pack));put("attempts",value.attempts);put("next_time",value.next);put("reason",value.reason)
         },SQLiteDatabase.CONFLICT_REPLACE)
     }
     fun hash(bytes:ByteArray)=MessageDigest.getInstance("SHA-256").digest(bytes).joinToString(""){"%02x".format(it)}
@@ -95,9 +118,9 @@ object ContactRecognition {
             decoder.setTargetSize(maxOf(1,(info.size.width*ratio).toInt()),maxOf(1,(info.size.height*ratio).toInt()));decoder.allocator=ImageDecoder.ALLOCATOR_SOFTWARE
         }
         try{
-            val face=detector.detectBitmap(bitmap,requireSingle=true).singleOrNull()?:return null
-            if(!usablePortrait(bitmap.width,bitmap.height,face))return null
-            val aligned=FaceAlignment.crop(bitmap,face)?:return null
+            val face=detector.detectBitmap(bitmap,requireSingle=true).singleOrNull()?:throw PortraitRejected("single_face_not_detected")
+            if(!usablePortrait(bitmap.width,bitmap.height,face))throw PortraitRejected("portrait_quality_or_landmarks")
+            val aligned=FaceAlignment.portraitCrop(bitmap,face)?:throw PortraitRejected("portrait_alignment")
             return try{encoder.encode(aligned)}finally{aligned.recycle()}
         }finally{bitmap.recycle()}
     }
@@ -112,16 +135,20 @@ object ContactRecognition {
                 store.writableDatabase.execSQL("UPDATE contact_signatures SET name=? WHERE lookup=? AND name!=?",arrayOf(photo.contact.name,photo.contact.lookup,photo.contact.name));continue
             }
             if(processed++>=limit)return false
+            var digest=""
             val result=runCatching{
-                val data=read(photo);val digest=hash(data)
+                val data=read(photo);digest=hash(data)
                 // A name/phone change updates the provider timestamp too. Reuse identical pixels.
                 if(old!=null && old.digest==digest && old.status!="error")old.copy(stamp=photo.stamp)
-                else {val vector=infer(data);Cached(photo.stamp,digest,vector,if(vector==null)"skipped"else"done",0,0)}
+                else {val vector=infer(data);Cached(photo.stamp,digest,vector,if(vector==null)"skipped"else"done",0,0,if(vector==null)"unusable_portrait"else "")}
             }
             if(!keepGoing())return false
             result.onSuccess{save(store,photo,it)}.onFailure{
-                val attempts=if(old?.stamp==photo.stamp)old.attempts+1 else 1
-                save(store,photo,Cached(photo.stamp,"",null,"error",attempts,now+if(attempts==1)60_000L else 5*60_000L))
+                if(it is PortraitRejected)save(store,photo,Cached(photo.stamp,digest,null,"skipped",0,0,it.code))
+                else {
+                    val attempts=if(old?.stamp==photo.stamp)old.attempts+1 else 1
+                    save(store,photo,Cached(photo.stamp,"",null,"error",attempts,now+if(attempts==1)60_000L else 5*60_000L,it.javaClass.simpleName))
+                }
             }
         }
         return true
@@ -145,13 +172,21 @@ object ContactRecognition {
     fun match(store:FaceStore,references:List<Reference>,keepGoing:()->Boolean):Int {
         if(references.isEmpty())return 0
         val people=PeopleStore(store)
+        val referenceToken=hash((POLICY+references.sortedBy{it.contact.lookup}.joinToString{"${it.contact.lookup}:${it.contact.name}:${hash(FaceVectors.pack(it.vector))}"}).toByteArray())
         var seeded=0
         for(member in people.members().filter{it.person==null && it.ready && !it.manual && it.status!="excluded" && it.face.authority=="Anchor"}){
             if(!keepGoing())return seeded
             val vector=people.vector(member.key)?:continue
+            val token=hash((referenceToken+hash(FaceVectors.pack(vector))).toByteArray())
+            val done=store.readableDatabase.rawQuery("SELECT token FROM contact_face_matches WHERE uri=? AND ordinal=?",arrayOf(member.key.uri,member.key.ordinal.toString())).use{it.moveToFirst() && it.getString(0)==token}
+            if(done)continue
             val candidate=GroupRules.Capsule(0,mutableSetOf(),mutableSetOf(member.key.uri),mutableSetOf(member.key.uri),mutableListOf(GroupRules.Prototype(member,vector)))
-            val contact=choose(candidate,references,keepGoing)?:continue
+            val contact=choose(candidate,references,keepGoing)
             if(!keepGoing())return seeded
+            if(contact==null){
+                store.writableDatabase.insertWithOnConflict("contact_face_matches",null,ContentValues().apply{put("uri",member.key.uri);put("ordinal",member.key.ordinal);put("token",token)},SQLiteDatabase.CONFLICT_REPLACE)
+                continue
+            }
             val id=people.record(member,GroupRules.Decision(seed=true,status="known",score=1f,reason="Clear contact portrait match"))?:continue
             if(people.autoContact(id,contact))seeded++
         }
@@ -161,7 +196,6 @@ object ContactRecognition {
         val manual=rows.filter{it.manual}.mapNotNull{it.person?.let{p->roots[p]?:p}}.toSet()
         val eligible=groups.filter{group->contacts[group.id]==null && group.leaves.none{it in named || it in blocked} && group.id !in manual}
         if(eligible.isEmpty())return seeded
-        val referenceToken=hash((POLICY+references.sortedBy{it.contact.lookup}.joinToString{"${it.contact.lookup}:${it.contact.name}:${hash(FaceVectors.pack(it.vector))}"}).toByteArray())
         var linked=seeded
         for(group in eligible){
             if(!keepGoing())break

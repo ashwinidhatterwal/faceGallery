@@ -19,13 +19,27 @@ object FaceAlignment {
         if(sqrt(residual/5)>8.0 || a*a+b*b<1e-10)return null
         return floatArrayOf(a.toFloat(),(-b).toFloat(),(tx-a*sx+b*sy).toFloat(),b.toFloat(),a.toFloat(),(ty-b*sx-a*sy).toFloat(),0f,0f,1f)
     }
-    fun crop(bitmap:Bitmap,face:FaceObservation):Bitmap? {
+    fun crop(bitmap:Bitmap,face:FaceObservation):Bitmap?=alignedCrop(bitmap,face,false)
+    /** Tight contact avatars may omit surrounding background, never the five facial landmarks.
+     * Extend only nearby edge pixels; leave gallery cropping and its signatures unchanged. */
+    fun portraitCrop(bitmap:Bitmap,face:FaceObservation):Bitmap?=alignedCrop(bitmap,face,true)
+    private fun alignedCrop(bitmap:Bitmap,face:FaceObservation,portrait:Boolean):Bitmap? {
         val values=transform(face.landmarks,bitmap.width,bitmap.height)?:return null
         val matrix=Matrix().apply{setValues(values)};val inverse=Matrix();if(!matrix.invert(inverse))return null
-        // Avoid inventing padding for a face cut off at an image edge.
         val corners=floatArrayOf(0f,0f,111f,0f,0f,111f,111f,111f);inverse.mapPoints(corners)
-        if(corners.indices.any{corners[it]<-.01f || corners[it]>(if(it%2==0)bitmap.width-1f else bitmap.height-1f)+.01f})return null
-        return Bitmap.createBitmap(112,112,Bitmap.Config.ARGB_8888).also{Canvas(it).drawBitmap(bitmap,matrix,Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))}
+        val outside=corners.indices.any{corners[it]<-.01f || corners[it]>(if(it%2==0)bitmap.width-1f else bitmap.height-1f)+.01f}
+        if(outside){
+            if(!portrait)return null
+            val scale=sqrt(values[0]*values[0]+values[3]*values[3])
+            // At most 30% of the output width may extend beyond an edge. Large truncation
+            // or invalid landmarks still reject; padding never fabricates facial features.
+            if(corners.indices.any{maxOf(-corners[it],corners[it]-(if(it%2==0)bitmap.width-1f else bitmap.height-1f),0f)*scale>112f*.30f})return null
+        }
+        return Bitmap.createBitmap(112,112,Bitmap.Config.ARGB_8888).also{result->
+            val paint=Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            if(outside){paint.shader=BitmapShader(bitmap,Shader.TileMode.CLAMP,Shader.TileMode.CLAMP).apply{setLocalMatrix(matrix)};Canvas(result).drawRect(0f,0f,112f,112f,paint)}
+            else Canvas(result).drawBitmap(bitmap,matrix,paint)
+        }
     }
     fun overlap(a:FaceObservation,b:FaceObservation):Float {
         val intersection=(minOf(a.right,b.right)-maxOf(a.left,b.left)).coerceAtLeast(0f)*(minOf(a.bottom,b.bottom)-maxOf(a.top,b.top)).coerceAtLeast(0f)

@@ -19,8 +19,8 @@ android {
         applicationId = "com.mosaic.gallery"
         minSdk = 28
         targetSdk = 36
-        versionCode = 44
-        versionName = "1.0.0-rc4"
+        versionCode = 45
+        versionName = "1.0.0-rc5"
     }
 
     // The release is signed only with credentials supplied at build time.

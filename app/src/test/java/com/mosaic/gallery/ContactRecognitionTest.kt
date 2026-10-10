@@ -82,7 +82,7 @@ class ContactRecognitionTest {
     @Test fun manuallyCorrectedFaceIsNotAutomaticallyNamed(){FaceStore(app).use{store->group(store,1);val people=PeopleStore(store);people.correct(setOf(people.members().single().key),create=true);assertEquals(0,ContactRecognition.match(store,listOf(reference()),{true}));assertTrue(people.contacts().isEmpty())}}
     @Test fun newGalleryReferenceReconsidersPreviouslyUnmatchedGroup(){FaceStore(app).use{store->val id=group(store,1);assertEquals(0,ContactRecognition.match(store,listOf(reference(score=.90f)),{true}));val second=group(store,2);PeopleStore(store).link(id,second,"attach","auto","Additional evidence");assertEquals(1,ContactRecognition.match(store,listOf(reference(score=.90f)),{true}))}}
     @Test fun clearResultsRemovesCachedPortraitSignatures(){FaceStore(app).use{store->group(store,1);ContactRecognition.scan(store,listOf(photo()),{true},read={byteArrayOf(1)},infer={vector()});store.clear();assertNull(ContactRecognition.cached(store,contact().lookup));assertEquals(0,store.summary().done)}}
-    @Test fun schemaSevenUpgradePreservesPeopleAndAddsCache(){val path=app.getDatabasePath("faces.db");path.parentFile!!.mkdirs();SQLiteDatabase.openOrCreateDatabase(path,null).use{db->db.execSQL("CREATE TABLE people(id INTEGER PRIMARY KEY,label TEXT NOT NULL,contact_lookup TEXT,contact_name TEXT,name_rank INTEGER NOT NULL DEFAULT 0)");db.execSQL("INSERT INTO people(id,label) VALUES(7,'Saved name')");db.version=7};FaceStore(app).use{store->assertEquals(8,store.readableDatabase.version);store.readableDatabase.rawQuery("SELECT label,contact_auto_blocked FROM people WHERE id=7",null).use{assertTrue(it.moveToFirst());assertEquals("Saved name",it.getString(0));assertEquals(0,it.getInt(1))};assertNull(ContactRecognition.cached(store,contact().lookup))}}
+    @Test fun schemaSevenUpgradePreservesPeopleAndAddsCache(){val path=app.getDatabasePath("faces.db");path.parentFile!!.mkdirs();SQLiteDatabase.openOrCreateDatabase(path,null).use{db->db.execSQL("CREATE TABLE people(id INTEGER PRIMARY KEY,label TEXT NOT NULL,contact_lookup TEXT,contact_name TEXT,name_rank INTEGER NOT NULL DEFAULT 0)");db.execSQL("INSERT INTO people(id,label) VALUES(7,'Saved name')");db.version=7};FaceStore(app).use{store->assertEquals(9,store.readableDatabase.version);store.readableDatabase.rawQuery("SELECT label,contact_auto_blocked FROM people WHERE id=7",null).use{assertTrue(it.moveToFirst());assertEquals("Saved name",it.getString(0));assertEquals(0,it.getInt(1))};assertNull(ContactRecognition.cached(store,contact().lookup))}}
     @Test fun contactChangesWakeQuietJobWithoutRegroupingRevision(){Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_CONTACTS,Manifest.permission.READ_MEDIA_IMAGES);val before=AutoPeople.revision(app);AutoPeople.watch(app);val watch=app.getSystemService(android.app.job.JobScheduler::class.java).getPendingJob(AutoPeople.WATCH)!!;assertTrue(watch.triggerContentUris!!.any{it.uri==android.provider.ContactsContract.Contacts.CONTENT_URI});assertEquals(before,AutoPeople.revision(app))}
     @Test fun contactOnlyWakeDoesNotInvalidateTheGalleryCache(){
         val controller=org.robolectric.Robolectric.buildService(AutoPeopleJob::class.java).create()
@@ -136,13 +136,66 @@ class ContactRecognitionTest {
     }}
     @Test fun contactRetryDeadlineIsNotSuppressedByCompletedSweepCache(){
         Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_CONTACTS)
-        val p=app.getSharedPreferences("contact-recognition",0);p.edit().putString("model",FaceVectors.MODEL+"|portrait-v2").putLong("checked",System.currentTimeMillis()).putLong("faces",AutoPeople.revision(app)).putLong("retry-at",System.currentTimeMillis()+60000).commit();assertFalse(ContactRecognition.needsWork(app))
+        val p=app.getSharedPreferences("contact-recognition",0);p.edit().putString("model",FaceVectors.MODEL+"|portrait-v3").putLong("checked",System.currentTimeMillis()).putLong("faces",AutoPeople.revision(app)).putLong("retry-at",System.currentTimeMillis()+60000).commit();assertFalse(ContactRecognition.needsWork(app))
         FaceStore(app).use{store->assertTrue(ContactRecognition.run(app,store,{true}).retryDelay!! in 1..60000)}
         p.edit().putLong("retry-at",System.currentTimeMillis()-1).commit();assertTrue(ContactRecognition.needsWork(app))
     }
     @Test fun unavailableAddressBookBacksOffWithoutFailingGalleryWork(){
         Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_CONTACTS);ShadowContentResolver.registerProviderInternal(ContactsContractAuthority,Contacts().apply{unavailable=true})
         FaceStore(app).use{store->val result=ContactRecognition.runSafe(app,store,{true});assertFalse(result.more);assertEquals(15*60_000L,result.retryDelay);assertFalse(ContactRecognition.needsWork(app));ContactRecognition.invalidate(app);assertTrue(ContactRecognition.needsWork(app))}
+    }
+    @Test fun previousSuccessfulPortraitIsReusedWithoutReadingOrEncoding(){FaceStore(app).use{store->
+        var reads=0;var encodes=0
+        fun scan()=ContactRecognition.scan(store,listOf(photo()),{true},read={reads++;byteArrayOf(1)},infer={encodes++;vector()})
+        scan();store.writableDatabase.execSQL("UPDATE contact_signatures SET model=?",arrayOf(FaceVectors.MODEL+"|portrait-v2"))
+        repeat(3){assertTrue(scan())};assertEquals(1,reads);assertEquals(1,encodes);assertNotNull(ContactRecognition.cached(store,contact().lookup)!!.vector)
+    }}
+    @Test fun previousSkippedPortraitIsReconsideredExactlyOnce(){FaceStore(app).use{store->
+        var encodes=0
+        ContactRecognition.scan(store,listOf(photo()),{true},read={byteArrayOf(1)},infer={encodes++;null})
+        store.writableDatabase.execSQL("UPDATE contact_signatures SET model=?",arrayOf(FaceVectors.MODEL+"|portrait-v2"))
+        repeat(3){ContactRecognition.scan(store,listOf(photo()),{true},read={byteArrayOf(1)},infer={encodes++;vector()})}
+        assertEquals(2,encodes);assertEquals("done",ContactRecognition.cached(store,contact().lookup)!!.status)
+    }}
+    @Test fun alignmentRejectionIsRecordedAndNotRetriedUntilPortraitChanges(){FaceStore(app).use{store->
+        var encodes=0
+        repeat(3){ContactRecognition.scan(store,listOf(photo()),{true},read={byteArrayOf(1)},infer={encodes++;throw ContactRecognition.PortraitRejected("portrait_alignment")})}
+        val cached=ContactRecognition.cached(store,contact().lookup)!!;assertEquals(1,encodes);assertEquals("skipped",cached.status);assertEquals("portrait_alignment",cached.reason);assertEquals(ContactRecognition.hash(byteArrayOf(1)),cached.digest)
+        val report=ContactRecognition.diagnostics(app,store);assertEquals(1,report.getJSONObject("rejection_reasons").getInt("portrait_alignment"));assertFalse(report.toString().contains(contact().lookup));assertFalse(report.toString().contains(contact().name))
+        ContactRecognition.scan(store,listOf(photo(stamp="new")),{true},read={byteArrayOf(2)},infer={encodes++;vector()});assertEquals(2,encodes)
+    }}
+    @Test fun interruptedPortraitRejectionDoesNotCommit(){FaceStore(app).use{store->
+        var active=true
+        ContactRecognition.scan(store,listOf(photo()),{active},read={byteArrayOf(1)},infer={active=false;throw ContactRecognition.PortraitRejected("portrait_alignment")})
+        assertNull(ContactRecognition.cached(store,contact().lookup))
+    }}
+    @Test fun unassignedContactComparisonsAreCachedUntilReferencesChange(){FaceStore(app).use{store->
+        val record=PhotoRecord(1,Uri.parse("content://contact-cache/1"),"1.jpg",120000,400,300,"Camera")
+        store.save(record,listOf(face));store.saveSignature(record.uri.toString(),0,vector())
+        fun match(refs:List<ContactRecognition.Reference>):Int {var calls=0;ContactRecognition.match(store,refs,{calls++;true});return calls}
+        val first=match(listOf(reference(score=.8f)));val second=match(listOf(reference(score=.8f)));assertTrue(second<first)
+        assertTrue(match(listOf(reference(score=.81f)))>second)
+        assertEquals(1,ContactRecognition.match(store,listOf(reference()),{true}));assertEquals(contact(),PeopleStore(store).contacts().values.single())
+        store.clear();store.readableDatabase.rawQuery("SELECT COUNT(*) FROM contact_face_matches",null).use{assertTrue(it.moveToFirst());assertEquals(0,it.getInt(0))}
+    }}
+    @Test fun schemaEightUpgradeKeepsRecognitionAndSuccessfulContactSignature(){
+        var id=0L
+        FaceStore(app).use{store->
+            id=group(store,1);PeopleStore(store).rename(id,"Saved name")
+            ContactRecognition.scan(store,listOf(photo()),{true},read={byteArrayOf(1)},infer={vector()})
+            val db=store.writableDatabase
+            db.execSQL("ALTER TABLE contact_signatures RENAME TO contact_signatures_new")
+            db.execSQL("CREATE TABLE contact_signatures(lookup TEXT PRIMARY KEY,name TEXT NOT NULL,stamp TEXT NOT NULL,digest TEXT NOT NULL,model TEXT NOT NULL,status TEXT NOT NULL,vector BLOB,attempts INTEGER NOT NULL,next_time INTEGER NOT NULL)")
+            db.execSQL("INSERT INTO contact_signatures SELECT lookup,name,stamp,digest,model,status,vector,attempts,next_time FROM contact_signatures_new")
+            db.execSQL("DROP TABLE contact_signatures_new");db.execSQL("DROP TABLE contact_face_matches")
+            db.execSQL("UPDATE contact_signatures SET model=?",arrayOf(FaceVectors.MODEL+"|portrait-v2"));db.version=8
+        }
+        FaceStore(app).use{store->
+            assertEquals(9,store.readableDatabase.version);assertEquals(1,store.summary().faces);assertEquals("Saved name",PeopleStore(store).label(id))
+            assertFalse(store.needsSignature("content://contact-test/1",0));assertNotNull(ContactRecognition.cached(store,contact().lookup)!!.vector)
+            ContactRecognition.scan(store,listOf(photo()),{true},read={error("Must reuse")},infer={error("Must reuse")})
+            assertEquals("done",ContactRecognition.cached(store,contact().lookup)!!.status)
+        }
     }
     companion object{private const val ContactsContractAuthority="com.android.contacts"}
     class Contacts(private val withPhoto:Boolean=true):ContentProvider(){var calls=0;var unavailable=false;var projection:Array<out String>?=null;var uri:Uri?=null;override fun onCreate()=true;override fun query(uri:Uri,projection:Array<out String>?,selection:String?,args:Array<out String>?,sort:String?):Cursor?{calls++;this.uri=uri;this.projection=projection;if(unavailable)return null;return MatrixCursor(projection!!).apply{for(i in 1..150)addRow(arrayOf<Any?>(i,"key$i","Name $i",if(withPhoto)10 else null,if(withPhoto)"content://portraits/$i"else null,100))}};override fun getType(uri:Uri)="vnd.android.cursor.dir/contact";override fun insert(uri:Uri,values:ContentValues?):Uri?=null;override fun delete(uri:Uri,selection:String?,args:Array<out String>?)=0;override fun update(uri:Uri,values:ContentValues?,selection:String?,args:Array<out String>?)=0}

@@ -5,7 +5,7 @@ import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class FaceStore(private val context:Context,private val now:()->Long=System::currentTimeMillis):SQLiteOpenHelper(context,"faces.db",null,8),java.io.Closeable{
+class FaceStore(private val context:Context,private val now:()->Long=System::currentTimeMillis):SQLiteOpenHelper(context,"faces.db",null,9),java.io.Closeable{
     companion object{
         const val MODEL="mlkit-16.1.7-accurate-1600-quality1"
         fun fingerprint(photo:PhotoRecord)="${photo.modifiedMillis}:${photo.sizeBytes}:${photo.width}:${photo.height}:${photo.dateTakenMillis}"
@@ -28,6 +28,11 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
             val hasVeto=db.rawQuery("PRAGMA table_info(people)",null).use{c->var found=false;while(c.moveToNext())if(c.getString(1)=="contact_auto_blocked")found=true;found}
             if(!hasVeto)db.execSQL("ALTER TABLE people ADD COLUMN contact_auto_blocked INTEGER NOT NULL DEFAULT 0")
             ContactRecognition.create(db)
+        }
+        if(oldVersion<9){
+            ContactRecognition.create(db)
+            val hasReason=db.rawQuery("PRAGMA table_info(contact_signatures)",null).use{c->var found=false;while(c.moveToNext())if(c.getString(1)=="reason")found=true;found}
+            if(!hasReason)db.execSQL("ALTER TABLE contact_signatures ADD COLUMN reason TEXT NOT NULL DEFAULT ''")
         }
     }
     private fun createDurable(db:SQLiteDatabase){

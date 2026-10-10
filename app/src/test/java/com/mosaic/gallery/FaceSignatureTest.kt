@@ -57,6 +57,28 @@ class FaceSignatureTest {
         val edge=FaceAlignment.template.mapIndexed{i,v->(v-if(i%2==0)30 else 0)/200}
         assertNull(FaceAlignment.crop(bitmap,face.copy(landmarks=edge)));bitmap.recycle()
     }
+    @Test @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    fun tightPortraitCanAlignWithoutChangingGalleryCrop(){
+        val bitmap=Bitmap.createBitmap(100,100,Bitmap.Config.ARGB_8888).apply{eraseColor(android.graphics.Color.RED)}
+        val tight=face.copy(landmarks=listOf(.25f,.30f,.75f,.30f,.50f,.55f,.32f,.75f,.68f,.75f))
+        assertNull(FaceAlignment.crop(bitmap,tight))
+        val aligned=FaceAlignment.portraitCrop(bitmap,tight)!!;assertEquals(112,aligned.width);assertEquals(112,aligned.height)
+        assertEquals(android.graphics.Color.RED,aligned.getPixel(0,0));assertEquals(android.graphics.Color.RED,aligned.getPixel(111,111));aligned.recycle();bitmap.recycle()
+    }
+    @Test fun portraitAlignmentStillRejectsInvalidLandmarksAndExcessiveTruncation(){
+        val bitmap=Bitmap.createBitmap(100,100,Bitmap.Config.ARGB_8888)
+        assertNull(FaceAlignment.portraitCrop(bitmap,face.copy(landmarks=emptyList())))
+        assertNull(FaceAlignment.portraitCrop(bitmap,face.copy(landmarks=List(10){.5f})))
+        assertNull(FaceAlignment.portraitCrop(bitmap,face.copy(landmarks=listOf(.1f,.2f,.9f,.2f,.5f,.55f,.25f,.9f,.75f,.9f))))
+        bitmap.recycle()
+    }
+    @Test @org.robolectric.annotation.GraphicsMode(org.robolectric.annotation.GraphicsMode.Mode.NATIVE)
+    fun completePortraitUsesIdenticalPixelsToGalleryAlignment(){
+        val bitmap=Bitmap.createBitmap(200,200,Bitmap.Config.ARGB_8888)
+        for(y in 0 until 200)for(x in 0 until 200)bitmap.setPixel(x,y,android.graphics.Color.rgb(x,y,0))
+        val f=face.copy(landmarks=FaceAlignment.template.map{it/200});val gallery=FaceAlignment.crop(bitmap,f)!!;val portrait=FaceAlignment.portraitCrop(bitmap,f)!!
+        assertTrue(gallery.sameAs(portrait));gallery.recycle();portrait.recycle();bitmap.recycle()
+    }
     @Test fun oldFacesReceiveOnlyMutualMatchingLandmarks(){
         val second=face.copy(left=.6f,right=.9f);val fresh=face.copy(landmarks=List(10){.3f})
         val result=FaceAlignment.recover(listOf(face,second),listOf(fresh));assertEquals(fresh.landmarks,result[0].landmarks);assertTrue(result[1].landmarks.isEmpty())

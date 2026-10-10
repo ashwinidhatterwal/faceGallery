@@ -259,5 +259,5 @@ class PeopleStore(private val faces:FaceStore) {
         };return repaired
     }
     private fun contactKeysById()=buildSet<Long>{db.rawQuery("SELECT id FROM people WHERE contact_lookup IS NOT NULL",null).use{while(it.moveToNext())add(it.getLong(0))}}
-    fun reset(){db.delete("identity_assertions",null,null);transaction{db.delete("contact_signatures",null,null);db.delete("contact_matches",null,null);db.delete("face_edits",null,null);db.delete("correction_samples",null,null);db.delete("membership",null,null);db.delete("relations",null,null);db.delete("people",null,null)}}
+    fun reset(){db.delete("identity_assertions",null,null);transaction{db.delete("contact_signatures",null,null);db.delete("contact_matches",null,null);db.delete("contact_face_matches",null,null);db.delete("face_edits",null,null);db.delete("correction_samples",null,null);db.delete("membership",null,null);db.delete("relations",null,null);db.delete("people",null,null)}}
 }

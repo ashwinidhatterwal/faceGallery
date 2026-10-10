@@ -1,3 +1,18 @@
+# Face Gallery 1.0.0-rc5 — build 45
+
+- Fixed rejection of otherwise usable tightly cropped contact portraits. A separate alignment path extends existing edge pixels by at most 30% of the aligned output width; invalid landmarks and excessive truncation remain rejected. Gallery alignment remains strict.
+- Reconsiders old rejected/error portraits once under portrait-v3. Already successful portrait-v2 signatures are reused; gallery signatures are unchanged.
+- Caches unsuccessful unassigned gallery-face/contact comparisons by reference and signature content. Inputs must change before comparing again; cancellation saves no comparison token.
+- Additive database 8 → 9 migration adds rejection reasons and the comparison cache. Names, manual corrections and gallery faces/signatures are retained.
+- Recognition report includes aggregate contact-processing states and rejection reasons. No additional permissions or notifications.
+- Existing contact-match thresholds, ambiguity checks, manual corrections, battery/thermal gates and bounded transient-error retries remain in force.
+
+Validation: 422 Android tests and four Python verifier tests passed. Release APK/AAB builds, integrity/native alignment and publishing checks passed. Lint has zero errors and 134 warnings. Local outputs are unsigned. See validation/contact-portrait-recovery.json.
+
+Physical-phone contact matching and long-running background acceptance remain owner checks. Do not reset recognition data to apply this update.
+
+## Previous release
+
 # Face Gallery 1.0.0-rc4 — build 44
 
 - Transparent two-row video controls: full-width timeline, larger play target, combined elapsed/total time and mute. The visible tracker interpolates playback samples on animation frames.

@@ -171,7 +171,7 @@ class PeopleActivity:Activity(){
                     val store=PeopleStore(f)
                     val valid=photos.map{it.uri.toString()}.toSet()-f.pending(photos).map{it.uri.toString()}.toSet()
                     val rows=store.members().filter{it.key.uri in valid};val roots=store.components(rows);val groups=store.capsules(rows,roots)
-                    RecognitionMetrics.report(store,rows,roots,groups,IdentityEvidence.provisional(groups,rows,store.established(roots)))
+                    org.json.JSONObject(RecognitionMetrics.report(store,rows,roots,groups,IdentityEvidence.provisional(groups,rows,store.established(roots)))).put("contact_processing",ContactRecognition.diagnostics(this,f)).toString(2)
                 }}
             }
             runOnUiThread{if(active)result.onSuccess{

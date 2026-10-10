@@ -1,6 +1,12 @@
-# Face Gallery — Play release candidate 1.0.0-rc4 (44)
+# Face Gallery — Play release candidate 1.0.0-rc5 (45)
 
 Start with [publishing/START-HERE.md](publishing/START-HERE.md). This source includes store artwork, listing copy, policy/declaration drafts and release checks. Physical-device acceptance, public support details, privacy hosting and Play review remain owner steps.
+
+## Contact portrait recovery — 1.0.0-rc5
+
+Contact-specific alignment accepts a bounded amount of missing edge background for tight portraits. Gallery alignment, model and matching thresholds are unchanged. Previously rejected portrait-v2 references are reconsidered once; successful v2 signatures are reused without reading or encoding again. Unchanged skipped portraits and unsuccessful unassigned-face comparisons remain cached. Contact changes, new signatures and saved evidence trigger only the needed work. Interrupted work does not commit a rejection or comparison result.
+
+Database 8 → 9 adds contact rejection reasons and a face-comparison cache without clearing gallery faces, signatures, names or corrections. Export recognition report now includes aggregate contact permission, processing and rejection information, without contact names, lookup links, images or vectors. Genuine identity matches still require gallery evidence; a contact portrait alone does not become a gallery group.
 
 ## Playback and grid polish — 1.0.0-rc4
 
@@ -62,7 +68,7 @@ The APK and AAB are signed using **the same key you provided**. On every manual 
 
 - Android Gradle Plugin 8.13.2, Kotlin 2.3.0, Gradle 8.13 and JDK 17.
 - Android API 36 and SDK Build Tools 35.0.0; minimum supported Android API 28 (Android 9).
-- App ID `com.mosaic.gallery`; version code 44; version name `1.0.0-rc4`.
+- App ID `com.mosaic.gallery`; version code 45; version name `1.0.0-rc5`.
 - `./gradlew :app:assembleDebug` makes a local debug APK, which Android signs with the developer machine's local debug key, not your Play upload key.
 
 ## Important release notes

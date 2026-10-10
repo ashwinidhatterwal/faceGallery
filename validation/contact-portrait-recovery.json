@@ -1,0 +1,46 @@
+{
+  "version_name": "1.0.0-rc5",
+  "version_code": 45,
+  "database_version": 9,
+  "android_tests": {
+    "tests": 422,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "python_verifier_tests": 4,
+  "lint": {
+    "Error": 0,
+    "Warning": 134
+  },
+  "release_build": "APK and AAB passed; unsigned local verification",
+  "static_publishing_checks": "passed",
+  "integrity": {
+    "model_sha256": "35e2fc149c76efefefbc264fcb5153a467a1b490a82001aba19bd7fc432ec235",
+    "native_libraries": [
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libface_detector_v2_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libtensorflowlite_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libface_detector_v2_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libtensorflowlite_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libface_detector_v2_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libtensorflowlite_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libface_detector_v2_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libtensorflowlite_jni.so"
+    ],
+    "signed_required": false,
+    "apk_sha256": "233ff430cff1957b2224874e92e16a2c5f4aaaf6c2dc9f358430f89377cfcd36",
+    "bundle_sha256": "0ffb74ba5cd53b7497105c1b297fd97837f39e598423ac95c7f3fc405beec394"
+  },
+  "regressions_verified": [
+    "tight contact alignment and bounded truncation",
+    "gallery alignment unchanged",
+    "v2 successful portrait signature reused without reading/encoding",
+    "previous skipped portrait reconsidered once",
+    "new skipped portrait cached until image changes",
+    "cancelled rejection not committed",
+    "negative unassigned comparison reused until reference changes",
+    "database 8 to 9 retains faces/signatures/names",
+    "contact rejection diagnostics exclude contact identities"
+  ],
+  "device_validation": "Actual address-book matching and long-running background acceptance need physical-phone verification."
+}
