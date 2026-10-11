@@ -44,7 +44,7 @@ class PhotoActivity : Activity() {
         if(tagsOpen)return
         if(peopleSheet.isShowing)peopleSheet.dismiss()
         tagsOpen=true;controlsVisible=true;chrome.visibility=View.VISIBLE;chrome.alpha=1f;viewerBars(true)
-        peopleHost.removeAllViews();peopleHost.addView(TagEditor.content(this,setOf(photo.uri.toString())){closeTags()},FrameLayout.LayoutParams(-1,-1));peopleHost.visibility=View.VISIBLE;tagCapsule.visibility=View.GONE;animatePeople(true)
+        peopleHost.removeAllViews();peopleHost.addView(TagEditor.content(this,setOf(photo.uri.toString())){closeTags()},FrameLayout.LayoutParams(-1,-2));peopleHost.visibility=View.VISIBLE;tagCapsule.visibility=View.GONE;animatePeople(true)
     }
     private fun closeTags(){if(!tagsOpen)return;tagsOpen=false;peopleHost.clearFocus();(getSystemService(INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(peopleHost.windowToken,0);animatePeople(false);updateTagCapsule();tagCapsule.visibility=View.VISIBLE}
     private fun updateTagCapsule(){if(::tagCapsule.isInitialized){val count=current?.let{MediaTags.read(this).labels(it.uri.toString()).size}?:0;tagCapsule.text=if(count==0)"Tags"else"Tags · $count"}}
@@ -69,9 +69,8 @@ class PhotoActivity : Activity() {
         val root=viewerRoot?:return;if(!::pager.isInitialized || root.height==0)return
         val insetTop=status.bottom.coerceAtLeast(top.bottom);val closedBottom=(root.height-film.top+GalleryStyle.dp(this,1)).coerceAtLeast(0)
         val available=(root.height-insetTop-chrome.paddingBottom).coerceAtLeast(0)
-        fullViewerHeight=maxOf(fullViewerHeight,root.height)
-        val keyboardVisible=keyboardInset>0 || Build.VERSION.SDK_INT<30 && root.height<fullViewerHeight-GalleryStyle.dp(this,100)
-        val middle=insetTop+(available*(if(tagsOpen && keyboardVisible).25f else if(tagsOpen).58f else .5f)).toInt();val openBottom=root.height-middle
+        val tagHeight=GalleryStyle.dp(this,190).coerceAtMost(available)
+        val middle=if(tagsOpen)insetTop+(available-tagHeight).coerceAtLeast(0)else insetTop+(available*.5f).toInt();val openBottom=root.height-middle
         val margins=pager.layoutParams as FrameLayout.LayoutParams
         val nextBottom=(closedBottom+(openBottom-closedBottom)*peopleFraction).toInt()
         if(margins.topMargin!=insetTop || margins.bottomMargin!=nextBottom){margins.topMargin=insetTop;margins.bottomMargin=nextBottom;pager.layoutParams=margins}

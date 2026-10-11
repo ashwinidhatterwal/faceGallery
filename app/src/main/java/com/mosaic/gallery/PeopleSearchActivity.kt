@@ -36,13 +36,17 @@ class PeopleSearchActivity:Activity() {
         from=state?.getString("from")?.let(LocalDate::parse);through=state?.getString("through")?.let(LocalDate::parse)
         val root=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setBackgroundColor(GalleryStyle.canvas(context))}
         val bar=GalleryStyle.bar(this);bar.addView(GalleryStyle.action(this,"back","Back",compact=true){finish()})
-        bar.addView(GalleryStyle.text(this,"Search photos",26f),LinearLayout.LayoutParams(0,-2,1f))
+        bar.addView(GalleryStyle.text(this,"Search",26f),LinearLayout.LayoutParams(0,-2,1f))
         bar.addView(GalleryStyle.action(this,"personAdd","People",compact=true){startActivity(Intent(this,PeopleActivity::class.java).putExtra("search",true))})
         bar.addView(GalleryStyle.action(this,"close","Clear filters",compact=true){person=null;from=null;through=null;text.setText("");updateFilters();schedule()});root.addView(bar)
-        text=EditText(this).apply{hint="People, tags, dates or places";setSingleLine();setTextColor(GalleryStyle.textColor(context));setHintTextColor(GalleryStyle.muted(context));setPadding(dp(20),0,dp(20),0);setText(state?.getString("query")?:intent.getStringExtra("searchText").orEmpty())}
+        text=EditText(this).apply{hint="People, tags, dates or places";textSize=16f;setSingleLine();background=null;setTextColor(GalleryStyle.textColor(context));setHintTextColor(GalleryStyle.muted(context));setPadding(dp(20),0,dp(20),0);setText(state?.getString("query")?:intent.getStringExtra("searchText").orEmpty())}
         text.addTextChangedListener(object:TextWatcher{override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){};override fun afterTextChanged(s:Editable?){};override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){schedule()}})
-        root.addView(text,LinearLayout.LayoutParams(-1,dp(48)))
-        filters=GalleryStyle.bar(this);root.addView(filters);updateFilters()
+        val searchBox=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL;setPadding(dp(14),0,dp(6),0)
+            background=android.graphics.drawable.GradientDrawable().apply{setColor(GalleryStyle.surface(this@PeopleSearchActivity));cornerRadius=dp(24).toFloat()}}
+        searchBox.addView(ImageView(this).apply{setImageDrawable(GalleryStyle.icon(context,"search",GalleryStyle.muted(context)))},LinearLayout.LayoutParams(dp(22),dp(22)))
+        searchBox.addView(text,LinearLayout.LayoutParams(0,dp(52),1f))
+        root.addView(searchBox,LinearLayout.LayoutParams(-1,dp(52)).apply{leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(8);bottomMargin=dp(10)})
+        filters=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL;setPadding(dp(16),0,dp(16),dp(6))};root.addView(HorizontalScrollView(this).apply{isHorizontalScrollBarEnabled=false;addView(filters)});updateFilters()
         caption=GalleryStyle.text(this,"",13f,GalleryStyle.muted(this)).apply{setPadding(dp(20),dp(8),dp(20),dp(10))};root.addView(caption)
         adapter=PhotoGridAdapter(this,{if(selecting)toggle(it)else open(it)},{selecting=true;toggle(it)})
         grid=RecyclerView(this).apply{itemAnimator=null;adapter=this@PeopleSearchActivity.adapter;layoutManager=GridLayoutManager(this@PeopleSearchActivity,4).apply{spanSizeLookup=object:GridLayoutManager.SpanSizeLookup(){override fun getSpanSize(position:Int)=if(this@PeopleSearchActivity.adapter.isHeader(position))4 else 1}}}
@@ -64,10 +68,11 @@ class PeopleSearchActivity:Activity() {
     private fun query()=PeopleSearch.Query(text.text.toString(),person,from,through)
     private fun updateFilters() {
         filters.removeAllViews()
-        fun button(label:String,click:()->Unit)=Button(this).apply{text=label;isAllCaps=false;maxLines=1;textSize=12f;minWidth=0;minimumWidth=0;setPadding(dp(6),0,dp(6),0);setOnClickListener{click()}}
-        filters.addView(button(person?.let{index.labels[index.roots[it]?:it]}?:if(person!=null)"Selected person"else"Any person",::choosePerson),LinearLayout.LayoutParams(0,dp(48),1f))
-        filters.addView(button(from?.toString()?:"From date"){chooseDate(true)},LinearLayout.LayoutParams(0,dp(48),1f))
-        filters.addView(button(through?.toString()?:"To date"){chooseDate(false)},LinearLayout.LayoutParams(0,dp(48),1f))
+        fun button(label:String,chosen:Boolean,click:()->Unit)=GalleryStyle.button(this,label,chosen,click).apply{maxLines=1;textSize=13f;minimumHeight=0;minHeight=0;setPadding(dp(14),0,dp(14),0)}
+        fun params()=LinearLayout.LayoutParams(-2,dp(38)).apply{rightMargin=dp(8)}
+        filters.addView(button(person?.let{index.labels[index.roots[it]?:it]}?:if(person!=null)"Selected person"else"Person",person!=null,::choosePerson),params())
+        filters.addView(button(from?.toString()?:"From date",from!=null){chooseDate(true)},params())
+        filters.addView(button(through?.toString()?:"To date",through!=null){chooseDate(false)},params())
     }
     private fun choosePerson() {
         if(!ready)return
@@ -89,7 +94,7 @@ class PeopleSearchActivity:Activity() {
         cache.get(this)?.takeIf{tagRevision==MediaTags.version}?.let{(p,i)->photos=p;index=i;ready=true;updateFilters();filter();return}
         if(!ready)caption.text=""
         cache.preview(this)?.let{(p,i)->photos=p;index=i;ready=true;updateFilters()
-            val q=query();if(q==PeopleSearch.Query()){shownQuery=q;adapter.submitList(p);caption.text=if(p.isEmpty())""else"${p.size} photos"}else filter()
+            val q=query();if(q==PeopleSearch.Query()){shownQuery=q;adapter.submitList(p);caption.text=if(p.isEmpty())""else"${p.size} items"}else filter()
         }
         signal?.cancel();filtering?.cancel(false);handler.removeCallbacks(searchTask);val cancel=CancellationSignal();signal=cancel;val token=++loadEpoch;epoch++
         worker.execute {
@@ -101,7 +106,7 @@ class PeopleSearchActivity:Activity() {
     private fun filter() {
         if(!active || !ready)return
         filtering?.cancel(false);val token=++epoch;val q=query();val p=photos;val i=index
-        filtering=worker.submit {val next=PeopleSearch.filter(p,i,q,keepGoing={active && token==epoch});runOnUiThread{if(active && token==epoch){shownQuery=q;shown=next;selected.retainAll(next.map{it.uri.toString()}.toSet());selection();adapter.submitList(next,invalidateThumbnails=thumbnailsDirty);thumbnailsDirty=false;caption.text=if(next.isEmpty())"No matching accessible photos. Try another person or date."else "${next.size} photos"}}}
+        filtering=worker.submit {val next=PeopleSearch.filter(p,i,q,keepGoing={active && token==epoch});runOnUiThread{if(active && token==epoch){shownQuery=q;shown=next;selected.retainAll(next.map{it.uri.toString()}.toSet());selection();adapter.submitList(next,invalidateThumbnails=thumbnailsDirty);thumbnailsDirty=false;caption.text=if(next.isEmpty())"No matches"else "${next.size} items"}}}
     }
     private fun open(photo:PhotoRecord) {
         returnUri=null

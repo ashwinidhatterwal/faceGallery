@@ -152,7 +152,7 @@ class FluidPeopleUiTest {
         fun decode():Bitmap{decodes++;return Bitmap.createBitmap(400,300,Bitmap.Config.ARGB_8888)}
         val first=FaceThumbnails.load(app,photo,face,::decode)!!;assertEquals(192,first.width);assertSame(first,FaceThumbnails.load(app,photo,face,::decode));assertEquals(1,decodes)
         val changed=photo.copy(modifiedMillis=99);assertNull(FaceThumbnails.get(app,changed,face));assertNotSame(first,FaceThumbnails.load(app,changed,face,::decode));assertEquals(2,decodes)
-        GalleryData.invalidate();assertNull(FaceThumbnails.get(app,photo,face));Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_MEDIA_IMAGES);assertNull(FaceThumbnails.get(app,photo,face));assertNull(FaceThumbnails.load(app,photo,face,::decode));assertEquals(2,decodes)
+        GalleryData.invalidate();assertSame(first,FaceThumbnails.get(app,photo,face));Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_MEDIA_IMAGES);assertNull(FaceThumbnails.get(app,photo,face));assertNull(FaceThumbnails.load(app,photo,face,::decode));assertEquals(2,decodes)
         assertFalse(first.isRecycled);FaceThumbnails.clear();assertFalse(first.isRecycled)
     }
 

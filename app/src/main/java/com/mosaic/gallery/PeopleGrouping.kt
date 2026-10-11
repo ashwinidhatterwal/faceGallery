@@ -6,10 +6,10 @@ object GroupRules {
     const val ANCHOR_JOIN=.80f;const val SUPPORT_JOIN=.80f
     const val MERGE=.80f;const val INDEPENDENT_MS=60_000L
     const val AGREEMENT=.72f;const val GROUP_MARGIN=.04f;const val FACE_MARGIN=.06f
-    data class Key(val uri:String,val ordinal:Int)
-    data class Member(val key:Key,val face:FaceObservation,val time:Long,val person:Long?,val suggested:Long?,val status:String,val score:Float,val reason:String,val ready:Boolean,val manual:Boolean=false)
-    data class Prototype(val member:Member,val vector:FloatArray)
-    class Capsule(val id:Long,val leaves:MutableSet<Long>,val photos:MutableSet<String>,val anchors:MutableSet<String>,val prototypes:MutableList<Prototype>)
+    data class Key(val uri:String,val ordinal:Int):java.io.Serializable
+    data class Member(val key:Key,val face:FaceObservation,val time:Long,val person:Long?,val suggested:Long?,val status:String,val score:Float,val reason:String,val ready:Boolean,val manual:Boolean=false):java.io.Serializable
+    data class Prototype(val member:Member,val vector:FloatArray):java.io.Serializable
+    class Capsule(val id:Long,val leaves:MutableSet<Long>,val photos:MutableSet<String>,val anchors:MutableSet<String>,val prototypes:MutableList<Prototype>):java.io.Serializable
     data class Candidate(val capsule:Capsule,val score:Float,val agreement:Float,val witness:Long)
     data class Decision(val target:Long?=null,val seed:Boolean=false,val status:String="tentative",val score:Float=0f,val reason:String="Not enough reliable evidence",val suggested:Long?=null)
     fun select(members:List<Member>):List<Member> {

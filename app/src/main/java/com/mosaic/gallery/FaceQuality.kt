@@ -6,7 +6,7 @@ import kotlin.math.abs
 import kotlin.math.min
 
 data class FaceObservation(val left:Float,val top:Float,val right:Float,val bottom:Float,
-    val yaw:Float,val pitch:Float,val roll:Float,val sharpness:Float,val score:Float,val authority:String,val landmarks:List<Float> = emptyList())
+    val yaw:Float,val pitch:Float,val roll:Float,val sharpness:Float,val score:Float,val authority:String,val landmarks:List<Float> = emptyList()):java.io.Serializable
 
 /** Conservative heuristics for later embedding selection, not detector confidence or identity probability. */
 object FaceQuality {

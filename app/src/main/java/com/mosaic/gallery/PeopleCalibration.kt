@@ -3,7 +3,7 @@ package com.mosaic.gallery
 /** Local explicit feedback adjusts policy, never neural weights or identity probabilities. */
 object PeopleCalibration {
     data class Sample(val a:String,val b:String,val label:Int,val score:Float)
-    data class Policy(val anchor:Float=.80f,val support:Float=.80f,val merge:Float=.80f,val review:Float=.65f,val positives:Int=0,val negatives:Int=0,val agreement:Float=.72f,val groupMargin:Float=.04f,val faceMargin:Float=.06f)
+    data class Policy(val anchor:Float=.80f,val support:Float=.80f,val merge:Float=.80f,val review:Float=.65f,val positives:Int=0,val negatives:Int=0,val agreement:Float=.72f,val groupMargin:Float=.04f,val faceMargin:Float=.06f):java.io.Serializable
     fun policy(samples:List<Sample>):Policy {
         fun scores(label:Int)=samples.filter{it.label==label && it.score.isFinite() && it.score in -1f..1f && it.a!=it.b}.distinctBy{setOf(it.a,it.b)}.map{it.score}.sorted()
         val positives=scores(1);val negatives=scores(0)

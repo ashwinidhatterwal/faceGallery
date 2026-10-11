@@ -132,7 +132,7 @@ class ContactSuggestionsTest {
     }}
     @Test fun versionTenMigrationPreservesPortraitsAndGroups(){
         FaceStore(app).use{f->add(f,1);seed(PeopleStore(f),1);portrait(f);f.writableDatabase.execSQL("DROP TABLE contact_hint_rejections");f.writableDatabase.version=10}
-        FaceStore(app).use{f->val p=PeopleStore(f);assertEquals(11,f.readableDatabase.version);assertEquals(1,p.capsules().size);assertEquals("done",ContactRecognition.cached(f,contact().lookup)!!.status);p.rejectContactHint(key(1),contact().lookup);assertTrue(p.contactHintRejections().isNotEmpty())}
+        FaceStore(app).use{f->val p=PeopleStore(f);assertEquals(12,f.readableDatabase.version);assertEquals(1,p.capsules().size);assertEquals("done",ContactRecognition.cached(f,contact().lookup)!!.status);p.rejectContactHint(key(1),contact().lookup);assertTrue(p.contactHintRejections().isNotEmpty())}
     }
     private class EmptyContacts:android.content.ContentProvider(){override fun onCreate()=true;override fun query(uri:Uri,projection:Array<out String>?,selection:String?,args:Array<out String>?,sort:String?)=android.database.MatrixCursor(projection?:emptyArray());override fun getType(uri:Uri):String?=null;override fun insert(uri:Uri,values:android.content.ContentValues?):Uri?=null;override fun delete(uri:Uri,selection:String?,args:Array<out String>?)=0;override fun update(uri:Uri,values:android.content.ContentValues?,selection:String?,args:Array<out String>?)=0}
 }

@@ -54,7 +54,7 @@ class ContactDiagnosticsTest {
     }}
     @Test fun versionNineMigrationPreservesCachedResults(){
         FaceStore(app).use{f->ContactRecognition.scan(f,listOf(photo),{true},read={byteArrayOf(1)},infer={vector});f.writableDatabase.execSQL("ALTER TABLE contact_signatures RENAME TO saved_contact_signatures");f.writableDatabase.execSQL("CREATE TABLE contact_signatures AS SELECT lookup,name,stamp,digest,model,status,vector,attempts,next_time,reason FROM saved_contact_signatures");f.writableDatabase.execSQL("DROP TABLE saved_contact_signatures");f.writableDatabase.version=9}
-        FaceStore(app).use{f->val cached=ContactRecognition.cached(f,contact.lookup)!!;assertEquals("done",cached.status);assertEquals("",cached.detail);assertFalse(ContactRecognition.due(cached,photo,1));assertEquals(11,f.readableDatabase.version)}
+        FaceStore(app).use{f->val cached=ContactRecognition.cached(f,contact.lookup)!!;assertEquals("done",cached.status);assertEquals("",cached.detail);assertFalse(ContactRecognition.due(cached,photo,1));assertEquals(12,f.readableDatabase.version)}
     }
     @Test fun legacyRejectedPortraitGetsOnlyOneRepairEvenWhenPixelsAreIdentical(){FaceStore(app).use{f->
         ContactRecognition.scan(f,listOf(photo),{true},read={byteArrayOf(1)},infer={throw ContactRecognition.PortraitRejected("portrait_quality_or_landmarks")})

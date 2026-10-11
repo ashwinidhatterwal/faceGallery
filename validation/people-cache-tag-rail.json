@@ -1,0 +1,28 @@
+{
+  "version_code": 55,
+  "version_name": "1.0.0-rc15",
+  "database_version": 12,
+  "tests": {
+    "android": 503,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0,
+    "python": 4
+  },
+  "lint": {
+    "warnings": 151,
+    "errors": 0,
+    "fatal": 0
+  },
+  "release_tasks": [
+    "testDebugUnitTest",
+    "assembleRelease",
+    "bundleRelease",
+    "lintRelease"
+  ],
+  "model_sha256": "35e2fc149c76efefefbc264fcb5153a467a1b490a82001aba19bd7fc432ec235",
+  "apk_sha256": "8dff3d9a3bc8df7b9dfabb8c0f2c3bff6e6df885bd6e41ea52fde3ab7d461ff9",
+  "aab_sha256": "dc6cb4d1f524b83717101da7fc9c7ecef718ef30300f8299cfd485e20cddf11b",
+  "signed": false,
+  "physical_device_testing": false
+}

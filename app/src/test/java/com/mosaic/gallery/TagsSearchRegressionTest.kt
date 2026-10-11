@@ -47,10 +47,8 @@ class TagsSearchRegressionTest {
     }
     @Test fun tagAlbumsOnlyContainAccessibleMedia(){
         val photos=listOf(photo(1),photo(2));MediaTags.update(app,photos.map{it.uri.toString()}.toSet(),setOf("Holiday"),emptySet())
-        val adapter=PhotoGridAdapter(app,{},{});adapter.submitAlbums(listOf(photos.first()))
-        val items=PhotoGridAdapter::class.java.getDeclaredField("items").apply{isAccessible=true}.get(adapter) as List<*>
-        val folder=items.first{it!!.javaClass.getDeclaredField("album").apply{isAccessible=true}.get(it)=="@tag:holiday"}!!
-        assertEquals(1,folder.javaClass.getDeclaredField("count").apply{isAccessible=true}.get(folder));adapter.close()
+        val folder=TagRail.folders(app,listOf(photos.first())).single()
+        assertEquals("@tag:holiday",folder.key);assertEquals(1,folder.count);assertEquals(listOf(photos.first()),folder.covers)
     }
     @Test fun universalSearchCombinesPeopleTagsDatePlaceAndDateRange(){
         val p=photo(1);val other=photo(2);val uri=p.uri.toString()
@@ -75,7 +73,7 @@ class TagsSearchRegressionTest {
         val c=Robolectric.buildActivity(MainActivity::class.java).create();var done=false
         val editor=TagEditor.content(c.get(),setOf(one,two)){done=true};val views=walk(editor)
         (views.filterIsInstance<EditText>().first()).setText("Together")
-        views.filterIsInstance<Button>().first{it.text=="Save tags"}.performClick()
+        views.first{it.contentDescription=="Save tags"}.performClick()
         assertTrue(done);assertEquals(setOf("original","together"),MediaTags.read(app).media[one]);assertEquals(setOf("together"),MediaTags.read(app).media[two]);c.destroy()
     }
     @Test fun viewerTagCapsuleOpensDrawerAndBackClosesIt(){
@@ -94,7 +92,7 @@ class TagsSearchRegressionTest {
         val chrome=field("chrome").get(a) as View;chrome.setPadding(0,0,0,800)
         PhotoActivity::class.java.getDeclaredMethod("layoutPeople").apply{isAccessible=true}.invoke(a)
         val panel=field("peopleHost").get(a) as View;val margins=panel.layoutParams as FrameLayout.LayoutParams
-        assertTrue(margins.height>500);assertEquals(1400,margins.topMargin+margins.height)
+        assertEquals(GalleryStyle.dp(a,190),margins.height);assertEquals(1400,margins.topMargin+margins.height)
         c.destroy()
     }
     @Test fun fullPermissionPeoplePreviewSurvivesMediaRefreshButSelectedPermissionDoesNot(){

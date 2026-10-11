@@ -40,6 +40,7 @@ class PeopleCache<T> {
     private var entry:Entry<T>?=null
     @Synchronized fun get(context:Context):T?=entry?.takeIf{MediaAccess.allowed(context) && it.access==PeopleData.access(context) && it.revision==PeopleData.version && it.media==GalleryData.version}?.data
     @Synchronized fun preview(context:Context,allowMediaRefresh:Boolean=false):T?=entry?.takeIf{MediaAccess.allowed(context) && it.access==PeopleData.access(context) && (it.media==GalleryData.version || allowMediaRefresh && MediaAccess.cacheable(context))}?.data
+    @Synchronized fun putPreview(context:Context,data:T){if(MediaAccess.cacheable(context))entry=Entry(PeopleData.access(context),Long.MIN_VALUE,GalleryData.version,data)}
     @Synchronized fun put(context:Context,revision:Long,data:T,media:Long=GalleryData.version){if(revision==PeopleData.version && media==GalleryData.version && MediaAccess.allowed(context))entry=Entry(PeopleData.access(context),revision,media,data)}
 }
 object GalleryData {
@@ -77,7 +78,7 @@ object GalleryData {
 }
 class MosaicApplication:Application() {
     override fun onLowMemory(){FaceThumbnails.clear();super.onLowMemory()}
-    @Suppress("DEPRECATION") override fun onTrimMemory(level:Int){if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)FaceThumbnails.clear();super.onTrimMemory(level)}
+    @Suppress("DEPRECATION") override fun onTrimMemory(level:Int){if(level>=android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW && level!=android.content.ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN)FaceThumbnails.clear();super.onTrimMemory(level)}
     override fun onCreate(){super.onCreate()
         val main=Handler(Looper.getMainLooper())
         var started=0
@@ -90,11 +91,12 @@ class MosaicApplication:Application() {
             override fun onActivitySaveInstanceState(a:Activity,b:Bundle){}
             override fun onActivityDestroyed(a:Activity){}
         })
+        PeopleActivity.restore(this)
         val schedule=Runnable{AutoPeople.ensure(this@MosaicApplication)}
         val media=object:ContentObserver(main){override fun onChange(selfChange:Boolean){GalleryData.invalidate();main.removeCallbacks(schedule);main.postDelayed(schedule,2_000)}}
         runCatching{contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,true,media)}
         runCatching{contentResolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI,true,media)}
-        val contacts=object:ContentObserver(main){override fun onChange(selfChange:Boolean){ContactLinkSync.invalidate();PeopleData.changed();ContactRecognition.invalidate(this@MosaicApplication);main.removeCallbacks(schedule);main.postDelayed(schedule,2_000)}}
+        val contacts=object:ContentObserver(main){override fun onChange(selfChange:Boolean){ContactLinkSync.invalidate();PeopleActivity.invalidateSaved(this@MosaicApplication);PeopleData.changed();ContactRecognition.invalidate(this@MosaicApplication);main.removeCallbacks(schedule);main.postDelayed(schedule,2_000)}}
         runCatching{contentResolver.registerContentObserver(ContactsContract.Contacts.CONTENT_URI,true,contacts)}
     }
 }

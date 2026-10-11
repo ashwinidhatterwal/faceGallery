@@ -5,7 +5,7 @@ import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class FaceStore(private val context:Context,private val now:()->Long=System::currentTimeMillis):SQLiteOpenHelper(context,"faces.db",null,11),java.io.Closeable{
+class FaceStore(private val context:Context,private val now:()->Long=System::currentTimeMillis):SQLiteOpenHelper(context,"faces.db",null,12),java.io.Closeable{
     fun contactReferences()=ContactRecognition.references(context,readableDatabase)
     companion object{
         const val MODEL="mlkit-16.1.7-accurate-1600-quality1"
@@ -16,7 +16,7 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
     override fun onCreate(db:SQLiteDatabase){
         db.execSQL("CREATE TABLE photos(uri TEXT PRIMARY KEY,fingerprint TEXT NOT NULL,model TEXT NOT NULL,status TEXT NOT NULL,error TEXT)")
         db.execSQL("CREATE TABLE faces(uri TEXT NOT NULL REFERENCES photos(uri) ON DELETE CASCADE,ordinal INTEGER NOT NULL,l REAL,t REAL,r REAL,b REAL,yaw REAL,pitch REAL,roll REAL,sharpness REAL,score REAL,authority TEXT,landmarks BLOB,PRIMARY KEY(uri,ordinal))")
-        createEmbeddings(db);PeopleStore.create(db);createRetries(db);createDurable(db);ContactRecognition.create(db);createContactHints(db);PeopleData.changed()
+        createEmbeddings(db);PeopleStore.create(db);createRetries(db);createDurable(db);ContactRecognition.create(db);createContactHints(db);PeopleRevision.create(db);PeopleData.changed()
     }
     override fun onUpgrade(db:SQLiteDatabase,oldVersion:Int,newVersion:Int){
         if(oldVersion<2){db.execSQL("ALTER TABLE faces ADD COLUMN landmarks BLOB");createEmbeddings(db)}
@@ -40,6 +40,7 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
             if(!hasDetail)db.execSQL("ALTER TABLE contact_signatures ADD COLUMN detail TEXT NOT NULL DEFAULT ''")
         }
         if(oldVersion<11)createContactHints(db)
+        if(oldVersion<12)PeopleRevision.create(db)
     }
     private fun createDurable(db:SQLiteDatabase){
         db.execSQL("CREATE TABLE IF NOT EXISTS operation_retries(uri TEXT NOT NULL,ordinal INTEGER NOT NULL,phase TEXT NOT NULL,fingerprint TEXT NOT NULL,model TEXT NOT NULL,attempts INTEGER NOT NULL,next_time INTEGER NOT NULL,PRIMARY KEY(uri,ordinal,phase))")
@@ -132,7 +133,7 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
         readableDatabase.rawQuery("SELECT l,t,r,b,yaw,pitch,roll,sharpness,score,authority,landmarks FROM faces WHERE uri=? AND EXISTS(SELECT 1 FROM photos WHERE photos.uri=faces.uri AND photos.status='done') ORDER BY ordinal",arrayOf(uri)).use{while(it.moveToNext())result+=FaceObservation(it.getFloat(0),it.getFloat(1),it.getFloat(2),it.getFloat(3),it.getFloat(4),it.getFloat(5),it.getFloat(6),it.getFloat(7),it.getFloat(8),it.getString(9),readLandmarks(it.getBlob(10)))}
         return result
     }
-    data class Summary(val done:Int,val errors:Int,val facePhotos:Set<String>,val counts:Map<String,Int>){val faces get()=counts.values.sum()}
+    data class Summary(val done:Int,val errors:Int,val facePhotos:Set<String>,val counts:Map<String,Int>):java.io.Serializable{val faces get()=counts.values.sum()}
     fun summary():Summary{
         var done=0;var errors=0;val uris=mutableSetOf<String>();val counts=mutableMapOf<String,Int>()
         readableDatabase.rawQuery("SELECT status,COUNT(*) FROM photos GROUP BY status",null).use{while(it.moveToNext())if(it.getString(0)=="done")done=it.getInt(1)else errors+=it.getInt(1)}
@@ -165,7 +166,7 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
         if(status=="error")failed(uri,ordinal,"encode")else writableDatabase.delete("operation_retries","uri=? AND ordinal=? AND phase='encode'",arrayOf(uri,ordinal.toString()))
         writableDatabase.insertWithOnConflict("embeddings",null,ContentValues().apply{put("uri",uri);put("ordinal",ordinal);put("model",FaceVectors.MODEL);put("status",status);put("vector",packed);put("error",error?.take(160))},SQLiteDatabase.CONFLICT_REPLACE).also{check(it!=-1L){"Signature could not be saved"};changed(uri)}
     }
-    data class Signatures(val ready:Int,val skipped:Int,val errors:Int)
+    data class Signatures(val ready:Int,val skipped:Int,val errors:Int):java.io.Serializable
     fun signatureSummary():Signatures {
         val counts=mutableMapOf<String,Int>();readableDatabase.rawQuery("SELECT status,COUNT(*) FROM embeddings WHERE model=? AND EXISTS(SELECT 1 FROM photos p WHERE p.uri=embeddings.uri AND p.status='done') GROUP BY status",arrayOf(FaceVectors.MODEL)).use{while(it.moveToNext())counts[it.getString(0)]=it.getInt(1)}
         return Signatures(counts["done"]?:0,counts["skipped"]?:0,counts["error"]?:0)

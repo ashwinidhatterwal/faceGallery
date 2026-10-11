@@ -1,3 +1,5 @@
+Current update: **1.0.0-rc15 / build 55**. See [the cache and UI review](PEOPLE-CACHE-TAG-RAIL-REVIEW.md) for changes, checks and phone acceptance steps.
+
 # Face Gallery — Play release candidate 1.0.0-rc13 (53)
 
 Start with [publishing/START-HERE.md](publishing/START-HERE.md). This source includes store artwork, listing copy, policy/declaration drafts and release checks. Physical-device acceptance, public support details, privacy hosting and Play review remain owner steps.

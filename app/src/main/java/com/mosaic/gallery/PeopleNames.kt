@@ -14,7 +14,7 @@ import java.util.concurrent.Executors
 
 /** Local identity links use Android lookup URIs; names alone never identify a contact. */
 object ContactNames {
-    data class Contact(val lookup:String,val name:String){override fun toString()=name}
+    data class Contact(val lookup:String,val name:String):java.io.Serializable{override fun toString()=name}
     data class Choice(val name:String,val contact:Contact?)
     private fun allowed(context:Context)=context.checkSelfPermission(Manifest.permission.READ_CONTACTS)==PackageManager.PERMISSION_GRANTED
     private val projection=arrayOf(ContactsContract.Contacts._ID,ContactsContract.Contacts.LOOKUP_KEY,ContactsContract.Contacts.DISPLAY_NAME_PRIMARY)

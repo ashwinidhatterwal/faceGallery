@@ -35,6 +35,7 @@ class MainActivity : Activity() {
     private lateinit var grid: RecyclerView
     private lateinit var fastScroll:GalleryFastScroll
     private lateinit var gridHost:FrameLayout
+    private lateinit var tagRail:TagRail
     private var parentGrid:RecyclerView?=null
     private var parentAdapter:PhotoGridAdapter?=null
     private var folderAnimation:android.animation.Animator?=null
@@ -153,7 +154,7 @@ class MainActivity : Activity() {
         state.putString("page", page); state.putString("album", album); state.putBoolean("selecting", selecting)
         state.putStringArrayList("selected", ArrayList(selected)); deletion.save(state); state.putBoolean("cameraOnly",cameraOnly); super.onSaveInstanceState(state)
     }
-    override fun onDestroy() { if(::fastScroll.isInitialized)fastScroll.close();if(observed)contentResolver.unregisterContentObserver(observer); folderAnimation?.cancel();glide?.detach();parentAdapter?.close();deletion.close(); adapter.close(); io.shutdownNow(); super.onDestroy() }
+    override fun onDestroy() { if(::tagRail.isInitialized)tagRail.close(); if(::fastScroll.isInitialized)fastScroll.close();if(observed)contentResolver.unregisterContentObserver(observer); folderAnimation?.cancel();glide?.detach();parentAdapter?.close();deletion.close(); adapter.close(); io.shutdownNow(); super.onDestroy() }
     private fun buildUi(): View {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(GalleryStyle.canvas(this@MainActivity)) }
         val header = LinearLayout(this).apply { gravity = android.view.Gravity.CENTER_VERTICAL; setPadding(dp(24),dp(22),dp(12),dp(14)) }
@@ -164,6 +165,7 @@ class MainActivity : Activity() {
         message=GalleryStyle.text(this,"",15f,GalleryStyle.muted(this@MainActivity)).apply{setPadding(dp(24),dp(12),dp(24),dp(12))};root.addView(message)
         action=Button(this);root.addView(action)
         progress=ProgressBar(this).apply{visibility=View.GONE};root.addView(progress,LinearLayout.LayoutParams(-1,dp(40)))
+        tagRail=TagRail(this){key,cover->openAlbum(key,cover)};root.addView(tagRail)
         grid=newGrid(adapter);gridHost=FrameLayout(this);gridHost.addView(grid,FrameLayout.LayoutParams(-1,-1))
         fastScroll=GalleryFastScroll(this);gridHost.addView(fastScroll,FrameLayout.LayoutParams(-1,-1));fastScroll.bind(grid){page=="Photos" && !folderOpen && !selecting && !openingAlbum}
         root.addView(gridHost,LinearLayout.LayoutParams(-1,0,1f));attachGlide()
@@ -201,7 +203,9 @@ class MainActivity : Activity() {
         parentGrid=grid;parentAdapter=adapter
         adapter=createAdapter();grid=newGrid(adapter);gridHost.addView(grid,FrameLayout.LayoutParams(-1,-1));attachGlide()
         album=chosen;folderOpen=true;page="Albums";scrollPosition=0;render()
-        folderAnimation=FolderTransition.play(gridHost,grid,folderOrigin,true){openingAlbum=false}
+        if(chosen.startsWith(MediaTags.PREFIX)){
+            grid.alpha=0f;grid.post{grid.animate().alpha(1f).setDuration(180).withEndAction{openingAlbum=false}.start()}
+        }else folderAnimation=FolderTransition.play(gridHost,grid,folderOrigin,true){openingAlbum=false}
     }
     private fun closeAlbum(){
         if(openingAlbum)return
@@ -213,7 +217,9 @@ class MainActivity : Activity() {
         if(grid.layoutManager==null){render();grid.layoutManager?.onRestoreInstanceState(albumLayout)}else{adapter.submitAlbums(allPhotos);updateSelection()}
         attachGlide()
         val target=adapter.albumView(chosen)?.let{FolderTransition.bounds(gridHost,it)}?:folderOrigin
-        folderAnimation=FolderTransition.play(gridHost,closingGrid,target,false){gridHost.removeView(closingGrid);closingAdapter.close();openingAlbum=false}
+        if(chosen.startsWith(MediaTags.PREFIX)){
+            closingGrid.animate().alpha(0f).setDuration(160).withEndAction{gridHost.removeView(closingGrid);closingAdapter.close();openingAlbum=false}.start()
+        }else folderAnimation=FolderTransition.play(gridHost,closingGrid,target,false){gridHost.removeView(closingGrid);closingAdapter.close();openingAlbum=false}
     }
     private fun switchPage(value:String){
         if(openingAlbum)return
@@ -254,6 +260,7 @@ class MainActivity : Activity() {
         val key = photo.uri.toString(); if (!selected.add(key)) selected.remove(key); updateSelection()
     }
     private fun updateSelection() {
+        tagRail.submit(allPhotos,page=="Albums" && !folderOpen && !selecting)
         if(::fastScroll.isInitialized){fastScroll.bringToFront();fastScroll.bind(grid){page=="Photos" && !folderOpen && !selecting && !openingAlbum}}
         heading.text=if(selecting)"${selected.size} selected"else if(album=="@favorites")"Favorites"else if(album=="@other")"Other"else if(folderOpen && album.startsWith(MediaTags.PREFIX))MediaTags.albumTitle(this,album)else if(folderOpen)album.ifBlank{"All"}else page
         heading.textSize=if(selecting)24f else 36f

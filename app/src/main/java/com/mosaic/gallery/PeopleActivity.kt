@@ -41,7 +41,7 @@ class PeopleActivity:Activity(){
     private var loadedAccess=""
     private var loadedMedia=-1L
     private val retryRead=Runnable{if(active)refresh()}
-    private fun dataCache()=if(folder)folderCache else if(duplicates)duplicateCache else cache
+    private fun dataCache()=if(duplicates)duplicateCache else cache
     private var titleView:TextView?=null
     private var contactLinks=emptyMap<Long,ContactNames.Contact>()
     private var graph=emptyMap<Long,Long>();private var rows=emptyList<GroupRules.Member>();private var relations=emptyList<PeopleStore.Relation>()
@@ -88,16 +88,55 @@ class PeopleActivity:Activity(){
     override fun onResume(){super.onResume();active=true;deletion.resume();FaceJobs.observe(observer);GalleryData.resumed(this);PeopleData.observe(dataObserver);AutoPeople.ensure(this);refresh()}
     private fun controls(state:FaceJobs.State=FaceJobs.state){if(folder){photoControls();return};selectionBar.visibility=if(selected.isNotEmpty() && !state.busy)View.VISIBLE else View.GONE;if(selected.isNotEmpty())titleView?.text="${selected.size} selected"}
     companion object{
-        private val folderCache=PeopleCache<ViewData>();private val cache=PeopleCache<ViewData>();private val duplicateCache=PeopleCache<ViewData>()
+        private val cache=PeopleCache<ViewData>();private val duplicateCache=PeopleCache<ViewData>()
+        private val readLock=Any()
         private val warming=java.util.concurrent.atomic.AtomicBoolean();private val warmWorker=Executors.newSingleThreadExecutor()
+        fun restore(context:android.content.Context){
+            val app=context.applicationContext
+            warmWorker.execute{saved(app)?.let{cache.putPreview(app,it)}
+            }
+        }
+        fun searchIndex(context:android.content.Context,photos:List<PhotoRecord>):PeopleSearch.Index? {
+            val data=cache.get(context)?.takeIf{it.photos.values.toList()==photos}?:return null
+            val people=data.rows.filter{it.status=="known" && it.person!=null}.groupBy{it.key.uri}.mapValues{(_,rows)->rows.map{data.graph[it.person]?:it.person!!}.toSet()}
+            val live=people.values.flatten().toSet();val tags=MediaTags.read(context)
+            return PeopleSearch.Index(people,data.labels.filterKeys{it in live && it !in data.provisional},data.graph,tags.media.mapValues{(uri,_)->tags.labels(uri)},tags.places)
+        }
+        fun invalidateSaved(context:android.content.Context){snapshotFile(context).delete()}
+        private fun photoStamp(photos:List<PhotoRecord>)=java.security.MessageDigest.getInstance("SHA-256").run{photos.forEach{update((it.uri.toString()+":"+FaceStore.fingerprint(it)+"\n").toByteArray(Charsets.UTF_8))};digest().joinToString(""){"%02x".format(it)}}
+        private fun stamp(context:android.content.Context):String = FaceWork.read{FaceStore(context).use{PeopleRevision.value(it.readableDatabase)}}
+        private fun snapshotFile(context:android.content.Context)=android.util.AtomicFile(java.io.File(context.noBackupFilesDir,"people-view.bin"))
+        private fun saved(context:android.content.Context):ViewData? {
+            if(!MediaAccess.cacheable(context))return null
+            return runCatching {
+                val file=snapshotFile(context);check(file.baseFile.length()<=64L*1024*1024)
+                java.io.ObjectInputStream(java.io.BufferedInputStream(file.openRead())).use{input->
+                    check(input.readInt()==1);check(input.readUTF()==PeopleData.access(context))
+                    check(input.readUTF()==GroupRules.VERSION);val version=input.readUTF();val mediaStamp=input.readUTF()
+                    val value=input.readObject() as ViewData
+                    val photos=PhotoIndex.read(context)?.photos?:return null
+                    check(mediaStamp==photoStamp(photos));value.copy(photos=photos.associateBy{it.uri.toString()}).also{it.diskStamp=version;it.mediaStamp=mediaStamp;it.groups();PeopleReadDiagnostics.metric(context,"snapshot_restores")}
+                }
+            }.getOrNull()
+        }
+        private fun persist(context:android.content.Context,data:ViewData,revision:Long){
+            if(!MediaAccess.cacheable(context) || revision!=PeopleData.version || data.diskStamp!=stamp(context))return
+            val file=snapshotFile(context);var stream:java.io.FileOutputStream?=null
+            runCatching {
+                stream=file.startWrite()
+                val output=java.io.ObjectOutputStream(java.io.BufferedOutputStream(stream))
+                output.writeInt(1);output.writeUTF(PeopleData.access(context));output.writeUTF(GroupRules.VERSION);output.writeUTF(data.diskStamp);output.writeUTF(data.mediaStamp)
+                output.writeObject(data);output.flush();file.finishWrite(stream);PeopleReadDiagnostics.metric(context,"snapshot_saves")
+            }.onFailure{file.failWrite(stream);PeopleReadDiagnostics.record(context,it)}
+        }
         fun warm(context:android.content.Context,photos:List<PhotoRecord>){
             val app=context.applicationContext
             if(GalleryData.peek(app)?.photos!=photos)return
-            if(cache.get(app)!=null || !AutoPeople.allowed(app) || warming.get())return
+            if(cache.get(app)!=null || !MediaAccess.photos(app) || warming.get())return
             if(!warming.compareAndSet(false,true))return
             val revision=PeopleData.version;val media=GalleryData.version
             warmWorker.execute{try{
-                val signal=CancellationSignal();runCatching{ContactLinkSync.refresh(app,signal)}.onFailure{PeopleReadDiagnostics.record(app,it)};val data=readData(app,photos,signal,false){AutoPeople.allowed(app) && media==GalleryData.version}
+                val signal=CancellationSignal();val data=readData(app,photos,signal,false){AutoPeople.allowed(app) && media==GalleryData.version}
                 if(media==GalleryData.version)cache.put(app,revision,data,media)
                 val covers=data.rows.filter{it.status=="known" && it.person!=null}.groupBy{data.graph[it.person]?:it.person!!}
                     .filterKeys{it !in data.provisional}.values.sortedByDescending{it.map{row->row.key.uri}.distinct().size}.take(9).map{it.maxBy{row->row.face.score}}
@@ -112,17 +151,51 @@ class PeopleActivity:Activity(){
             return readDataInternal(context,photos,signal,duplicates,keepGoing,true)
         }
         private fun readDataInternal(context:android.content.Context,photos:List<PhotoRecord>,signal:CancellationSignal,duplicates:Boolean,keepGoing:()->Boolean,hints:Boolean):ViewData {
+            if(!duplicates && hints) synchronized(readLock){
+                signal.throwIfCanceled()
+                cache.get(context)?.takeIf{it.mediaStamp==photoStamp(photos)}?.let{return it}
+                runCatching{ContactLinkSync.refresh(context,signal)}.onFailure{signal.throwIfCanceled();PeopleReadDiagnostics.record(context,it)}
+                val existing=saved(context)
+                if(existing!=null && existing.diskStamp==stamp(context) && existing.mediaStamp==photoStamp(photos)){
+                    cache.put(context,PeopleData.version,existing);PeopleReadDiagnostics.metric(context,"snapshot_reuses");return existing
+                }
+                val revision=PeopleData.version;val media=GalleryData.version
+                val next=readUncached(context,photos,signal,false,keepGoing,true)
+                signal.throwIfCanceled()
+                cache.put(context,revision,next,media);persist(context,next,revision)
+                return next
+            }
+            return readUncached(context,photos,signal,duplicates,keepGoing,hints)
+        }
+        private fun readUncached(context:android.content.Context,photos:List<PhotoRecord>,signal:CancellationSignal,duplicates:Boolean,keepGoing:()->Boolean,hints:Boolean):ViewData {
+            PeopleReadDiagnostics.metric(context,"snapshot_builds")
             val photoMap=photos.associateBy{it.uri.toString()}
+            val previous=cache.preview(context,allowMediaRefresh=true)
             return FaceStore(context).use{faceStore->val store=PeopleStore(faceStore)
                 faceStore.snapshot{
                     signal.throwIfCanceled();val valid=photos.map{it.uri.toString()}.toSet()-faceStore.pending(photos).map{it.uri.toString()}.toSet()
-                    val members=store.members().filter{it.key.uri in valid};val roots=store.components(members);val labels=store.labels(roots);val capsules=if(hints || duplicates)store.capsules(members,roots)else emptyList();val contacts=store.contacts(roots)
+                    val members=store.members().filter{it.key.uri in valid};val roots=store.components(members);val labels=store.labels(roots)
+                    val sources=PeopleRevision.sources(faceStore.readableDatabase);var referenceBuilds=0;var referenceReuses=0
+                    val capsules=if(hints && !duplicates){
+                        val oldGroups=previous?.groups().orEmpty();val oldReferences=previous?.references.orEmpty().associateBy{it.id}
+                        val leaves=roots.entries.groupBy({it.value},{it.key})
+                        members.filter{it.status=="known" && it.person!=null}.groupBy{roots[it.person]?:it.person!!}.map{(id,group)->
+                            val old=oldReferences[id]
+                            if(old!=null && oldGroups[id]==group && old.leaves==leaves[id].orEmpty().toSet() && group.all{sources[it.key.uri]==previous?.sources?.get(it.key.uri)}){
+                                referenceReuses++
+                                GroupRules.Capsule(id,old.leaves.toMutableSet(),old.photos.toMutableSet(),old.anchors.toMutableSet(),old.prototypes.toMutableList())
+                            }else{referenceBuilds++;store.capsules(group,leaves[id].orEmpty().associateWith{id}).single()}
+                        }
+                    }else if(duplicates)store.capsules(members,roots)else emptyList()
+                    if(referenceBuilds>0)PeopleReadDiagnostics.metric(context,"reference_builds",referenceBuilds)
+                    if(referenceReuses>0)PeopleReadDiagnostics.metric(context,"reference_reuses",referenceReuses)
+                    val contacts=store.contacts(roots)
                     val established=store.established(roots)
                     val provisional=if(hints)IdentityEvidence.provisional(capsules,members,store.names().keys+contacts.keys)else emptySet()
                     val covers=if(duplicates)emptyMap()else members.filter{it.status=="known" && it.person!=null}.groupBy{roots[it.person]?:it.person!!}
                         .filterKeys{it !in established}.mapValues{(_,rows)->rows.maxBy{it.face.score}.key}
                     val suggestedNames=if(hints)try{IdentitySuggestions.profileNamesCached(store,covers,valid,keepGoing={signal.throwIfCanceled();keepGoing()},rows=members,roots=roots,groups=capsules)}catch(error:Exception){signal.throwIfCanceled();if(error is java.util.concurrent.CancellationException)throw error;PeopleReadDiagnostics.record(context,error);emptyMap()}else emptyMap()
-                    ViewData(members,roots,labels,store.relations(),photoMap,if(duplicates)DuplicateReview.find(capsules,store.relations(),policy=store.policy(),keepGoing=keepGoing)else emptyList(),store.canUndo(),store.policy(),faceStore.summary(),faceStore.signatureSummary(),contacts,established,provisional,"",suggestedNames)
+                    ViewData(members,roots,labels,store.relations(),photoMap,if(duplicates)DuplicateReview.find(capsules,store.relations(),policy=store.policy(),keepGoing=keepGoing)else emptyList(),store.canUndo(),store.policy(),faceStore.summary(),faceStore.signatureSummary(),contacts,established,provisional,"",suggestedNames,capsules,sources).also{it.diskStamp=PeopleRevision.value(faceStore.readableDatabase);it.mediaStamp=photoStamp(photos);it.groups()}
                 }
             }
         }
@@ -138,10 +211,11 @@ class PeopleActivity:Activity(){
         if(!loaded)dataCache().preview(this,allowMediaRefresh=true)?.let{renderData(it)}
         if(refreshing){refreshAgain=true;return};refreshing=true;controls();val token=++epoch;val signal=CancellationSignal();query=signal
         worker.execute{
+            if(!duplicates && !loaded)saved(this)?.let{preview->runOnUiThread{if(active && token==epoch && !loaded)renderData(preview)}}
             val result=runCatching{
                 val photos=GalleryData.load(this,signal).photos;signal.throwIfCanceled()
                 val revision=PeopleData.version;val media=GalleryData.version
-                readDataInternal(this,photos,signal,duplicates,{active && !signal.isCanceled},!folder).also{dataCache().put(this,revision,it,media)}
+                readDataInternal(this,photos,signal,duplicates,{active && !signal.isCanceled},true).also{dataCache().put(this,revision,it,media)}
             }
             runOnUiThread{if(active && token==epoch && !isDestroyed){refreshing=false;result.onSuccess{readFailures=0;retryHandler.removeCallbacks(retryRead);renderData(it)}.onFailure{handleReadFailure(it)};if(refreshAgain){refreshAgain=false;refresh()}}}
         }
@@ -161,7 +235,7 @@ class PeopleActivity:Activity(){
     private fun renderData(data:ViewData){
                 rows=data.rows;graph=data.graph;labels=data.labels;contactLinks=data.contacts;established=data.established;relations=data.relations;canUndo=data.canUndo;loaded=true;loadedAccess=PeopleData.access(this);loadedMedia=GalleryData.version;selected.retainAll(rows.map{it.key}.toSet())
                 recognition="${data.faces.done} of ${data.photos.size} photos scanned · ${data.faces.faces} faces\n${data.signatures.ready} signatures ready · ${rows.count{it.status=="known"}} assigned faces\n${data.policy.positives} confirmed-match samples · ${data.policy.negatives} different-person samples\nAutomatic grouping uses quality, independent references and competing-person margins. Explicit feedback adjusts bounded thresholds. Separations and conflicts are preserved."
-                val allGroups=rows.filter{it.status=="known" && it.person!=null}.groupBy{graph[it.person]?:it.person!!}
+                val allGroups=data.groups()
                 recognition+="\n${data.provisional.size} pending profiles · agreement gate ${data.policy.agreement}"
                 val groups=if(review || groupId!=null || duplicates)allGroups else if(assignKeys.isNotEmpty() || mergeInto!=null)allGroups.filterKeys{it in established} else allGroups.filterKeys{it !in data.provisional}
                 if(groupId!=null)groupId=graph[groupId]?:groupId
@@ -182,7 +256,12 @@ class PeopleActivity:Activity(){
                 controls()
 
     }
-    private data class ViewData(val rows:List<GroupRules.Member>,val graph:Map<Long,Long>,val labels:Map<Long,String>,val relations:List<PeopleStore.Relation>,val photos:Map<String,PhotoRecord>,val suggestions:List<DuplicateReview.Suggestion>,val canUndo:Boolean,val policy:PeopleCalibration.Policy,val faces:FaceStore.Summary,val signatures:FaceStore.Signatures,val contacts:Map<Long,ContactNames.Contact>,val established:Set<Long>,val provisional:Set<Long>,val report:String,val suggestedNames:Map<Long,String> = emptyMap())
+    private data class ViewData(val rows:List<GroupRules.Member>,val graph:Map<Long,Long>,val labels:Map<Long,String>,val relations:List<PeopleStore.Relation>,@Transient val photos:Map<String,PhotoRecord>,val suggestions:List<DuplicateReview.Suggestion>,val canUndo:Boolean,val policy:PeopleCalibration.Policy,val faces:FaceStore.Summary,val signatures:FaceStore.Signatures,val contacts:Map<Long,ContactNames.Contact>,val established:Set<Long>,val provisional:Set<Long>,val report:String,val suggestedNames:Map<Long,String> = emptyMap(),val references:List<GroupRules.Capsule> = emptyList(),val sources:Map<String,Long> = emptyMap()):java.io.Serializable {
+        @Transient var diskStamp=""
+        @Transient var mediaStamp=""
+        @Transient private var grouped:Map<Long,List<GroupRules.Member>>?=null
+        fun groups():Map<Long,List<GroupRules.Member>> = grouped?:rows.filter{it.status=="known" && it.person!=null}.groupBy{graph[it.person]?:it.person!!}.also{grouped=it}
+    }
     private data class Card(val key:String,val member:GroupRules.Member,val photo:PhotoRecord?,val title:String,val subtitle:String,val person:Long?,val second:GroupRules.Member?=null,val secondPhoto:PhotoRecord?=null,val other:Long?=null)
     private val contactSync by lazy{ContactPhotoSync(this)}
     override fun onStop(){contactSync.dismiss();super.onStop()}
