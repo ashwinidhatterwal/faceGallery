@@ -1,0 +1,50 @@
+{
+  "version_name": "1.0.0-rc18",
+  "version_code": 58,
+  "baseline_commit": "db5d762212efe327cbbef2c70e947f839514dea7",
+  "validated_at_utc": "2026-10-20T11:39:41.613487+00:00",
+  "gradle_tasks": [
+    "testDebugUnitTest",
+    "lintRelease",
+    "assembleRelease",
+    "bundleRelease"
+  ],
+  "gradle_result": "BUILD SUCCESSFUL",
+  "unit_tests": {
+    "tests": 531,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint": {
+    "Warning": 160
+  },
+  "release_tool_tests": {
+    "tests": 4,
+    "failures": 0
+  },
+  "publishing_checks": "passed",
+  "diff_check": "passed",
+  "release_verification": {
+    "model_sha256": "35e2fc149c76efefefbc264fcb5153a467a1b490a82001aba19bd7fc432ec235",
+    "native_libraries": [
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libface_detector_v2_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libtensorflowlite_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libface_detector_v2_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libtensorflowlite_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libface_detector_v2_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libtensorflowlite_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libface_detector_v2_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libtensorflowlite_jni.so"
+    ],
+    "signed_required": false,
+    "apk_sha256": "62aa89822f9bbd2069d7160d5365ecb6a6f6e73bd96c1101caed57cf4768d2fd",
+    "bundle_sha256": "790f9a5a40498e83be8c41b080982877703fb8b543da86811dd51735ef49cd5f"
+  },
+  "limitations": [
+    "Release artifacts are unsigned; use the existing signing key to install an update.",
+    "Physical-device rendering, startup latency and frame timing have not been measured.",
+    "Android controls background job timing and force-stop recovery."
+  ],
+  "github_pushed": false
+}

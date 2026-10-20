@@ -7,5 +7,5 @@
   "support_email": "ashwinidhatterwal@gmail.com",
   "privacy_policy_url": "https://ashwinidhatterwal.github.io/faceGallery/privacy.html",
   "developer_name": "Ashwini Dhatterwal",
-  "release_notes": "People preload at startup with improved photo-permission caching. Smoother album opening. Start recognition from People, pause for 24 hours or resume now. Progress notifications show actual counts and measured step estimates. App battery and temperature stop thresholds removed."
+  "release_notes": "Recognition controls move to the People menu after starting, with live status and Pause/Resume. Repeated Start taps preserve saved work. New photos are processed automatically after completion. Portrait photos use the full viewer area with controls overlaid."
 }

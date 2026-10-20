@@ -72,13 +72,15 @@ class PhotoActivity : Activity() {
         val tagHeight=GalleryStyle.dp(this,190).coerceAtMost(available)
         val middle=if(tagsOpen)insetTop+(available-tagHeight).coerceAtLeast(0)else insetTop+(available*.5f).toInt();val openBottom=root.height-middle
         val margins=pager.layoutParams as FrameLayout.LayoutParams
-        val nextBottom=(closedBottom+(openBottom-closedBottom)*peopleFraction).toInt()
-        if(margins.topMargin!=insetTop || margins.bottomMargin!=nextBottom){margins.topMargin=insetTop;margins.bottomMargin=nextBottom;pager.layoutParams=margins}
+        // Photos use the full viewer; video playback controls stay above the filmstrip.
+        val closedTop=if(current?.isVideo==true)insetTop else 0;val mediaBottom=if(current?.isVideo==true)closedBottom else 0
+        val nextTop=(closedTop+(insetTop-closedTop)*peopleFraction).toInt();val nextBottom=(mediaBottom+(openBottom-mediaBottom)*peopleFraction).toInt()
+        if(margins.topMargin!=nextTop || margins.bottomMargin!=nextBottom){margins.topMargin=nextTop;margins.bottomMargin=nextBottom;pager.layoutParams=margins}
         val panel=peopleHost.layoutParams as FrameLayout.LayoutParams
         val height=root.height-middle-chrome.paddingBottom
         if(panel.topMargin!=middle || panel.height!=height){panel.topMargin=middle;panel.height=height;peopleHost.layoutParams=panel}
         peopleHost.translationY=(1f-peopleFraction)*height
-        if(::tagCapsule.isInitialized)tagCapsule.translationY=-(margins.bottomMargin+GalleryStyle.dp(this,12)).toFloat()
+        if(::tagCapsule.isInitialized)tagCapsule.translationY=-(closedBottom+(openBottom-closedBottom)*peopleFraction+GalleryStyle.dp(this,12))
     }
 
 
@@ -127,7 +129,7 @@ class PhotoActivity : Activity() {
             onSwipeUp={showPeople()}
             onDismissProgress={progress->chrome.animate().cancel();chrome.alpha=if(controlsVisible)1f-progress.coerceAtMost(0.95f)else 0f}
             onDismissReleased={closePhoto()}
-            onSelected={photo->if(tagsOpen)closeTags();if(peopleSheet.isShowing)peopleSheet.dismiss();current=photo;if(!photo.isVideo)peopleSheet.prepare(photo);editAction.visibility=if(photo.isVideo)View.GONE else View.VISIBLE;status.text="";updateTitle();updateNavigation()}
+            onSelected={photo->if(tagsOpen)closeTags();if(peopleSheet.isShowing)peopleSheet.dismiss();current=photo;if(!photo.isVideo)peopleSheet.prepare(photo);editAction.visibility=if(photo.isVideo)View.GONE else View.VISIBLE;status.text="";updateTitle();updateNavigation();layoutPeople()}
             onImageReady={available->peopleSheet.updatePreview((pager.currentImage()?.drawable as? android.graphics.drawable.BitmapDrawable)?.bitmap);current?.takeIf{!it.isVideo}?.let{peopleSheet.prepare(it)};status.text=if(available || current?.isVideo==true)""else"Media unavailable";startPostponedEnterTransition()}
         }
         state?.getString("videoUri")?.let{pager.restoreVideoState(GalleryVideoView.State(it,state.getLong("videoPosition"),state.getBoolean("videoPlaying",true),state.getBoolean("videoMuted",false)))}
@@ -183,6 +185,7 @@ class PhotoActivity : Activity() {
         chrome.animate().alpha(if(controlsVisible)1f else 0f).setDuration(160)
             .withEndAction{chrome.visibility=if(controlsVisible)View.VISIBLE else View.INVISIBLE}.start()
         pager.showVideoControls(controlsVisible);viewerBars(controlsVisible)
+        tagCapsule.visibility=if(controlsVisible)View.VISIBLE else View.INVISIBLE
     }
     @Suppress("DEPRECATION")
     private fun viewerBars(visible:Boolean){

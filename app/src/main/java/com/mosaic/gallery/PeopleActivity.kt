@@ -24,6 +24,7 @@ class PeopleActivity:Activity(){
     private lateinit var caption:TextView;private lateinit var cards:Cards
     private lateinit var recognitionPanel:LinearLayout;private lateinit var recognitionAction:Button
     private lateinit var recognitionLine:TextView;private lateinit var recognitionBar:ProgressBar
+    private var recognitionDialog:Dialog?=null
     private var groupId:Long?=null
     private var review=false;private var duplicates=false;private var mergeInto:Long?=null;private var refreshAgain=false
     private lateinit var namesEditor:PeopleNames
@@ -66,11 +67,11 @@ class PeopleActivity:Activity(){
             background=GradientDrawable().apply{setColor(GalleryStyle.surface(this@PeopleActivity));cornerRadius=dp(18).toFloat()}}
         val recognitionHeader=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
         recognitionHeader.addView(GalleryStyle.text(this,"People recognition",14f),LinearLayout.LayoutParams(0,-2,1f))
-        recognitionAction=GalleryStyle.button(this,"Start"){if(FaceJobs.state.busy || FaceWork.automatic)pauseRecognition()else startRecognition()}.apply{textSize=13f;minHeight=0;minimumHeight=0;setPadding(dp(12),0,dp(12),0);setTextColor(GalleryStyle.accent(this@PeopleActivity))}
+        recognitionAction=GalleryStyle.button(this,"Start"){startRecognition()}.apply{textSize=13f;minHeight=0;minimumHeight=0;setPadding(dp(12),0,dp(12),0);setTextColor(GalleryStyle.accent(this@PeopleActivity))}
         recognitionHeader.addView(recognitionAction,LinearLayout.LayoutParams(-2,dp(38)));recognitionPanel.addView(recognitionHeader)
         recognitionLine=GalleryStyle.text(this,"",12f,GalleryStyle.muted(this)).apply{maxLines=3};recognitionPanel.addView(recognitionLine)
         recognitionBar=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{max=100};recognitionPanel.addView(recognitionBar,LinearLayout.LayoutParams(-1,dp(3)).apply{topMargin=dp(8)})
-        recognitionPanel.visibility=if(folder || review || duplicates || assignKeys.isNotEmpty() || mergeInto!=null)View.GONE else View.VISIBLE
+        recognitionPanel.visibility=if(AutoPeople.started(this) || folder || review || duplicates || assignKeys.isNotEmpty() || mergeInto!=null)View.GONE else View.VISIBLE
         root.addView(recognitionPanel,LinearLayout.LayoutParams(-1,-2).apply{leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(8);bottomMargin=dp(4)})
         caption=GalleryStyle.text(this,"",14f,GalleryStyle.muted(this)).apply{setPadding(dp(20),dp(8),dp(20),dp(12))};root.addView(caption)
         cards=Cards();fullPhotos=PhotoGridAdapter(this,{if(selectingPhotos)togglePhoto(it)else openPhoto(it)},{selectingPhotos=true;togglePhoto(it)})
@@ -101,6 +102,7 @@ class PeopleActivity:Activity(){
     private fun controls(state:FaceJobs.State=FaceJobs.state){recognitionControls(state);if(folder){photoControls();return};selectionBar.visibility=if(selected.isNotEmpty() && !state.busy)View.VISIBLE else View.GONE;if(selected.isNotEmpty())titleView?.text="${selected.size} selected"}
     private fun recognitionControls(state:FaceJobs.State){
         if(!::recognitionAction.isInitialized)return
+        recognitionPanel.visibility=if(!AutoPeople.started(this) && !state.busy && !folder && !review && !duplicates && assignKeys.isEmpty() && mergeInto==null)View.VISIBLE else View.GONE
         val running=state.busy || FaceWork.automatic;val until=AutoPeople.pauseUntil(this)
         recognitionAction.text=if(state.pausing)"Pausing…"else if(running)"Pause · 24 hr"else if(until>System.currentTimeMillis())"Resume"else if(AutoPeople.started(this))"Recognise"else"Start"
         recognitionAction.contentDescription=if(running)"Pause recognition for 24 hours"else recognitionAction.text
@@ -117,6 +119,8 @@ class PeopleActivity:Activity(){
         recognitionBar.progress=state.progress?.percent?:0
     }
     private fun startRecognition(){
+        // A stale Start button or repeated tap must never launch a second session.
+        if(FaceJobs.state.busy || FaceWork.automatic || (AutoPeople.started(this) && AutoPeople.enabled(this))){AutoPeople.ensure(this);recognitionControls(FaceJobs.state);return}
         if(!RecognitionConsent.allowed(this)){RecognitionConsent.request(this,::startRecognition);return}
         if(!MediaAccess.photos(this)){Toast.makeText(this,"Allow photo access to recognise people",Toast.LENGTH_SHORT).show();startActivity(Intent(this,MainActivity::class.java).putExtra("requestMedia",true));return}
         if(android.os.Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED && !getSharedPreferences("face-notifications",0).getBoolean("asked",false)){
@@ -132,6 +136,32 @@ class PeopleActivity:Activity(){
         if(FaceJobs.state.busy)FaceJobs.publish(FaceJobs.state.copy(pausing=true,message="Pausing…"))
         if(FaceJobs.state.busy && !FaceJobs.state.background)startService(Intent(this,FaceScanService::class.java).setAction(FaceScanService.PAUSE_DAY))else FaceNotifications.paused(this)
         recognitionControls(FaceJobs.state)
+    }
+    private fun recognitionStatus(state:FaceJobs.State=FaceJobs.state):String=when{
+        state.pausing->"Pausing…"
+        AutoPeople.pauseUntil(this)>System.currentTimeMillis()->"Paused · resumes "+java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,java.text.DateFormat.SHORT).format(java.util.Date(AutoPeople.pauseUntil(this)))
+        state.busy || FaceWork.automatic->state.progress?.text()?:state.message.ifBlank{"In progress"}
+        !AutoPeople.enabled(this)->"Paused"
+        else->"Watching for new photos"
+    }
+    private fun showRecognitionStatus(){
+        recognitionDialog?.dismiss()
+        val root=GalleryStyle.panelRoot(this)
+        root.addView(GalleryStyle.text(this,"People recognition",22f))
+        val line=GalleryStyle.text(this,"",14f).apply{setPadding(0,dp(12),0,dp(12))};root.addView(line)
+        val progress=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal);root.addView(progress,LinearLayout.LayoutParams(-1,dp(3)))
+        val action=GalleryStyle.button(this,"Pause for 24 hours"){};root.addView(action,LinearLayout.LayoutParams(-1,dp(48)).apply{topMargin=dp(16)})
+        val dialog=GalleryStyle.dialog(this,root);recognitionDialog=dialog
+        val update:(FaceJobs.State)->Unit={state->
+            line.text=recognitionStatus(state)
+            progress.visibility=if(state.busy && !state.pausing)View.VISIBLE else View.GONE
+            progress.isIndeterminate=state.progress?.total?.let{it<=0}?:true
+            progress.progress=state.progress?.percent?:0
+            action.text=if(state.pausing)"Pausing…"else if(AutoPeople.enabled(this))"Pause for 24 hours"else"Resume"
+            action.contentDescription=action.text;action.isEnabled=!state.pausing
+        }
+        action.setOnClickListener{if(AutoPeople.enabled(this))pauseRecognition()else startRecognition();update(FaceJobs.state)}
+        FaceJobs.observe(update);dialog.setOnDismissListener{FaceJobs.remove(update);if(recognitionDialog===dialog)recognitionDialog=null}
     }
     companion object{
         private val cache=PeopleCache<ViewData>();private val duplicateCache=PeopleCache<ViewData>()
@@ -340,6 +370,7 @@ class PeopleActivity:Activity(){
     override fun onStop(){contactSync.dismiss();super.onStop()}
     private fun viewMenu(anchor:View){
         val actions=mutableListOf<GalleryMenu.Action>()
+        if(AutoPeople.started(this))actions+=GalleryMenu.Action("info","Recognition · "+recognitionStatus()){showRecognitionStatus()}
         if(folder){
             actions+=GalleryMenu.Action("select","Select photos"){selectingPhotos=true;photoControls()}
             actions+=GalleryMenu.Action("personAdd","Name or contact"){renamePerson(groupId!!)}
@@ -441,7 +472,7 @@ class PeopleActivity:Activity(){
     override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){super.onRequestPermissionsResult(requestCode,permissions,grantResults);if(requestCode==7012)startRecognition();namesEditor.permissionResult(requestCode);deletion.onPermissionsResult(requestCode,grantResults)}
     override fun onSaveInstanceState(state:Bundle){state.putString("profileQuery",profileQuery);state.putBoolean("selectingPhotos",selectingPhotos);state.putStringArrayList("selectedPhotos",ArrayList(selectedPhotos));deletion.save(state);super.onSaveInstanceState(state)}
     override fun onPause(){retryHandler.removeCallbacks(retryRead);editGate.cancel();if(!namesEditor.requestingPermission){identityChooser.dismiss();namesEditor.dismiss()};glide?.finish();active=false;epoch++;refreshing=false;refreshAgain=false;FaceJobs.remove(observer);PeopleData.remove(dataObserver);query?.cancel();super.onPause()}
-    override fun onDestroy(){retryHandler.removeCallbacks(retryRead);deletion.close();contactSync.close();glide?.detach();worker.shutdown();cards.close();fullPhotos.close();identityChooser.close();namesEditor.close();super.onDestroy()}
+    override fun onDestroy(){recognitionDialog?.dismiss();retryHandler.removeCallbacks(retryRead);deletion.close();contactSync.close();glide?.detach();worker.shutdown();cards.close();fullPhotos.close();identityChooser.close();namesEditor.close();super.onDestroy()}
     private fun dp(value:Int)=GalleryStyle.dp(this,value)
     private inner class Cards:RecyclerView.Adapter<Cards.Holder>(){
         private val images=Executors.newSingleThreadExecutor();private var items=emptyList<Card>();private var closed=false;private val holders=mutableSetOf<Holder>()

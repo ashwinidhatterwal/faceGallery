@@ -51,15 +51,15 @@ class PresentationTest {
         assertEquals(140f,actual[Matrix.MTRANS_X],0.001f)
         assertEquals(0f,actual[Matrix.MTRANS_Y],0.001f)
     }
-    @Test fun photoViewportEndsBeforeControls(){
+    @Test fun photoViewportExtendsBehindControls(){
         val controller=Robolectric.buildActivity(PhotoActivity::class.java,Intent().setData(Uri.parse("content://presentation/photo"))).create()
         val activity=controller.get();val content=activity.findViewById<ViewGroup>(android.R.id.content)
         val root=content.getChildAt(0) as ViewGroup
         fun layout(){root.measure(View.MeasureSpec.makeMeasureSpec(1080,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(1920,View.MeasureSpec.EXACTLY));root.layout(0,0,1080,1920);root.viewTreeObserver.dispatchOnGlobalLayout()}
         layout();layout()
         val pager=root.getChildAt(0) as PhotoPager
-        assertTrue("Photo must clear the header",pager.top>0)
-        assertTrue("Photo must clear the filmstrip/actions",pager.bottom<root.height)
+        assertEquals("Photo extends behind the header",0,pager.top)
+        assertEquals("Photo extends behind the filmstrip/actions",root.height,pager.bottom)
         val before=pager.height;root.getChildAt(1).visibility=View.INVISIBLE;layout()
         assertEquals("Hiding controls must not resize the photo",before,pager.height)
         controller.destroy()

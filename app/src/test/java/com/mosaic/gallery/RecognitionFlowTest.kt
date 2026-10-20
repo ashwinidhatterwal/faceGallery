@@ -17,6 +17,39 @@ import java.time.Duration
 @Config(sdk=[35])
 class RecognitionFlowTest {
     private val app get()=RuntimeEnvironment.getApplication()
+    private fun field(activity:PeopleActivity,name:String)=PeopleActivity::class.java.getDeclaredField(name).apply{isAccessible=true}.get(activity)
+    @Test fun startCardDisappearsPermanentlyAfterStartingAndRepeatedTapDoesNotLaunchAgain(){
+        app.getSharedPreferences("automatic-people",0).edit().clear().commit();RecognitionConsent.accept(app)
+        FaceJobs.publish(FaceJobs.State());Shadows.shadowOf(app).grantPermissions(android.Manifest.permission.READ_MEDIA_IMAGES,android.Manifest.permission.POST_NOTIFICATIONS)
+        val c=Robolectric.buildActivity(PeopleActivity::class.java).create();val a=c.get()
+        val panel=field(a,"recognitionPanel") as View;assertEquals(View.VISIBLE,panel.visibility)
+        val start=PeopleActivity::class.java.getDeclaredMethod("startRecognition").apply{isAccessible=true}
+        start.invoke(a);start.invoke(a)
+        assertEquals(FaceScanService.GROUP,Shadows.shadowOf(a).nextStartedService.action)
+        assertNull(Shadows.shadowOf(a).nextStartedService);assertEquals(View.GONE,panel.visibility)
+        assertNotNull(app.getSystemService(JobScheduler::class.java).getPendingJob(AutoPeople.WATCH))
+        c.destroy()
+        val reopened=Robolectric.buildActivity(PeopleActivity::class.java).create()
+        assertEquals(View.GONE,(field(reopened.get(),"recognitionPanel") as View).visibility)
+        AutoPeople.pauseForDay(app)
+        PeopleActivity::class.java.getDeclaredMethod("recognitionControls",FaceJobs.State::class.java).apply{isAccessible=true}.invoke(reopened.get(),FaceJobs.State())
+        assertEquals(View.GONE,(field(reopened.get(),"recognitionPanel") as View).visibility);reopened.destroy()
+    }
+    @Test fun recognitionStatusDialogUpdatesCountsAndPauseWithoutReturningTheStartCard(){
+        RecognitionConsent.accept(app);AutoPeople.resume(app);FaceJobs.publish(FaceJobs.State())
+        val c=Robolectric.buildActivity(PeopleActivity::class.java).create();val a=c.get()
+        PeopleActivity::class.java.getDeclaredMethod("showRecognitionStatus").apply{isAccessible=true}.invoke(a)
+        val dialog=field(a,"recognitionDialog") as android.app.Dialog
+        fun walk(v:View):List<View> = listOf(v)+(if(v is android.view.ViewGroup)(0 until v.childCount).flatMap{walk(v.getChildAt(it))}else emptyList())
+        val views=walk(dialog.window!!.decorView)
+        assertTrue(views.filterIsInstance<android.widget.TextView>().any{it.text.toString()=="Watching for new photos"})
+        FaceJobs.publish(FaceJobs.State(mode=FaceScanService.GROUP,progress=RecognitionProgress.Snapshot("Recognising photos",12,40)))
+        assertTrue(views.filterIsInstance<android.widget.TextView>().any{it.text.toString().contains("12 of 40 photos")})
+        assertEquals(30,views.filterIsInstance<android.widget.ProgressBar>().single().progress)
+        views.filterIsInstance<android.widget.Button>().single{it.text.toString()=="Pause for 24 hours"}.performClick()
+        assertTrue(AutoPeople.pauseUntil(app)>System.currentTimeMillis());assertFalse(AutoPeople.enabled(app))
+        c.destroy();assertFalse(dialog.isShowing);FaceJobs.publish(FaceJobs.State())
+    }
     @Test fun etaUsesOnlyMeasuredWorkAndResetsForANewStep(){
         var now=0L;val rate=RecognitionProgress{now}
         assertNull(rate.sample("Recognising photos",40,100).remainingMillis)

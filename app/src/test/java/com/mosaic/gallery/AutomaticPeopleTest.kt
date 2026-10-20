@@ -138,6 +138,19 @@ class AutomaticPeopleTest {
         assertEquals(1,job.detections);assertEquals(1,job.encodes)
         assertTrue(job.onStartJob(parameters()));finish();assertEquals(1,job.detections);assertEquals(1,job.encodes);c.destroy()
     }
+    @Test fun newPhotoAfterCompletionIsProcessedAutomaticallyWithoutRescanningOldPhotos(){
+        AutoPeople.ensure(app)
+        val c=Robolectric.buildService(Pipeline::class.java).create();val job=c.get()
+        job.records=listOf(photo)
+        assertTrue(job.onStartJob(parameters()));finish()
+        assertEquals(1,job.detections);assertEquals(1,job.encodes)
+        job.records=listOf(photo,photo.copy(id=2,uri=Uri.parse("content://auto/2")))
+        val watch=ReflectionHelpers.newInstance(JobParameters::class.java).also{ReflectionHelpers.setField(it,"jobId",AutoPeople.WATCH)}
+        assertTrue(job.onStartJob(watch));finish()
+        assertEquals(2,job.detections);assertEquals(2,job.encodes)
+        assertNotNull(app.getSystemService(JobScheduler::class.java).getPendingJob(AutoPeople.WATCH))
+        assertTrue(job.onStartJob(parameters()));finish();assertEquals(2,job.detections);assertEquals(2,job.encodes);c.destroy()
+    }
     @Test fun usableMatchesAppearWithoutWaitingForEveryRefinementAndAreNotRepeated(){
         val c=Robolectric.buildService(Pipeline::class.java).create();val job=c.get()
         job.records=(1..4).map{photo.copy(id=it.toLong(),uri=Uri.parse("content://auto/$it"))}
