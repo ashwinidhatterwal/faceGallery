@@ -22,6 +22,8 @@ class PeopleActivity:Activity(){
     private lateinit var selectionBar:LinearLayout
     private val selected=mutableSetOf<GroupRules.Key>();private var assignKeys=emptySet<GroupRules.Key>();private var canUndo=false;private var recognition=""
     private lateinit var caption:TextView;private lateinit var cards:Cards
+    private lateinit var recognitionPanel:LinearLayout;private lateinit var recognitionAction:Button
+    private lateinit var recognitionLine:TextView;private lateinit var recognitionBar:ProgressBar
     private var groupId:Long?=null
     private var review=false;private var duplicates=false;private var mergeInto:Long?=null;private var refreshAgain=false
     private lateinit var namesEditor:PeopleNames
@@ -47,7 +49,7 @@ class PeopleActivity:Activity(){
     private var graph=emptyMap<Long,Long>();private var rows=emptyList<GroupRules.Member>();private var relations=emptyList<PeopleStore.Relation>()
     private var labels=emptyMap<Long,String>();private var lastBusy=false
     private val observer:(FaceJobs.State)->Unit={state->if(active){
-        controls(state);if(state.busy){caption.text=state.message.ifBlank{"Processing…"};lastBusy=true}else if(lastBusy){lastBusy=false;refresh()}
+        controls(state);if(!state.busy && lastBusy){lastBusy=false;refresh()};lastBusy=state.busy
     }}
     override fun onCreate(state:Bundle?){
         super.onCreate(state);groupId=intent.getLongExtra("person",-1).takeIf{it>=0};review=intent.getBooleanExtra("review",false);duplicates=intent.getBooleanExtra("duplicates",false);mergeInto=intent.getLongExtra("mergeInto",-1).takeIf{it>=0}
@@ -60,6 +62,16 @@ class PeopleActivity:Activity(){
         titleView=GalleryStyle.text(this,if(review)"Needs review"else"People",28f);bar.addView(titleView,LinearLayout.LayoutParams(0,-2,1f))
         val more=GalleryStyle.action(this,"more","People options",compact=true){};more.setOnClickListener{viewMenu(it)};bar.addView(more);root.addView(bar)
         if(searchMode){root.addView(EditText(this).apply{hint="Search people";setSingleLine();setTextColor(GalleryStyle.textColor(context));setHintTextColor(GalleryStyle.muted(context));setPadding(dp(20),0,dp(20),0);setText(profileQuery);addTextChangedListener(object:android.text.TextWatcher{override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){};override fun afterTextChanged(s:android.text.Editable?){};override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){profileQuery=s.toString();if(loaded)showProfiles()}})},LinearLayout.LayoutParams(-1,dp(48)))}
+        recognitionPanel=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;setPadding(dp(14),dp(10),dp(14),dp(10))
+            background=GradientDrawable().apply{setColor(GalleryStyle.surface(this@PeopleActivity));cornerRadius=dp(18).toFloat()}}
+        val recognitionHeader=LinearLayout(this).apply{gravity=Gravity.CENTER_VERTICAL}
+        recognitionHeader.addView(GalleryStyle.text(this,"People recognition",14f),LinearLayout.LayoutParams(0,-2,1f))
+        recognitionAction=GalleryStyle.button(this,"Start"){if(FaceJobs.state.busy || FaceWork.automatic)pauseRecognition()else startRecognition()}.apply{textSize=13f;minHeight=0;minimumHeight=0;setPadding(dp(12),0,dp(12),0);setTextColor(GalleryStyle.accent(this@PeopleActivity))}
+        recognitionHeader.addView(recognitionAction,LinearLayout.LayoutParams(-2,dp(38)));recognitionPanel.addView(recognitionHeader)
+        recognitionLine=GalleryStyle.text(this,"",12f,GalleryStyle.muted(this)).apply{maxLines=3};recognitionPanel.addView(recognitionLine)
+        recognitionBar=ProgressBar(this,null,android.R.attr.progressBarStyleHorizontal).apply{max=100};recognitionPanel.addView(recognitionBar,LinearLayout.LayoutParams(-1,dp(3)).apply{topMargin=dp(8)})
+        recognitionPanel.visibility=if(folder || review || duplicates || assignKeys.isNotEmpty() || mergeInto!=null)View.GONE else View.VISIBLE
+        root.addView(recognitionPanel,LinearLayout.LayoutParams(-1,-2).apply{leftMargin=dp(16);rightMargin=dp(16);topMargin=dp(8);bottomMargin=dp(4)})
         caption=GalleryStyle.text(this,"",14f,GalleryStyle.muted(this)).apply{setPadding(dp(20),dp(8),dp(20),dp(12))};root.addView(caption)
         cards=Cards();fullPhotos=PhotoGridAdapter(this,{if(selectingPhotos)togglePhoto(it)else openPhoto(it)},{selectingPhotos=true;togglePhoto(it)})
         grid=RecyclerView(this).apply{layoutManager=GridLayoutManager(this@PeopleActivity,if(folder)4 else if(duplicates)2 else 3).apply{if(folder)spanSizeLookup=object:GridLayoutManager.SpanSizeLookup(){override fun getSpanSize(position:Int)=if(fullPhotos.isHeader(position))4 else 1}};adapter=if(folder)fullPhotos else cards;itemAnimator=null
@@ -86,7 +98,41 @@ class PeopleActivity:Activity(){
         Ui.insets(this,root);setContentView(root);if(intent.getBooleanExtra("recognitionOptions",false))root.post{advanced()};Ui.back(this){if(selectingPhotos)clearPhotoSelection()else if(selected.isNotEmpty())clearSelection()else finish()}
     }
     override fun onResume(){super.onResume();active=true;deletion.resume();FaceJobs.observe(observer);GalleryData.resumed(this);PeopleData.observe(dataObserver);AutoPeople.ensure(this);showLaunchPreview();refresh()}
-    private fun controls(state:FaceJobs.State=FaceJobs.state){if(folder){photoControls();return};selectionBar.visibility=if(selected.isNotEmpty() && !state.busy)View.VISIBLE else View.GONE;if(selected.isNotEmpty())titleView?.text="${selected.size} selected"}
+    private fun controls(state:FaceJobs.State=FaceJobs.state){recognitionControls(state);if(folder){photoControls();return};selectionBar.visibility=if(selected.isNotEmpty() && !state.busy)View.VISIBLE else View.GONE;if(selected.isNotEmpty())titleView?.text="${selected.size} selected"}
+    private fun recognitionControls(state:FaceJobs.State){
+        if(!::recognitionAction.isInitialized)return
+        val running=state.busy || FaceWork.automatic;val until=AutoPeople.pauseUntil(this)
+        recognitionAction.text=if(state.pausing)"Pausing…"else if(running)"Pause · 24 hr"else if(until>System.currentTimeMillis())"Resume"else if(AutoPeople.started(this))"Recognise"else"Start"
+        recognitionAction.contentDescription=if(running)"Pause recognition for 24 hours"else recognitionAction.text
+        recognitionAction.isEnabled=!state.pausing
+        recognitionLine.text=when{
+            state.pausing->"Saving completed work…"
+            running->state.progress?.text()?:state.message.ifBlank{"Preparing photos…"}
+            until>System.currentTimeMillis()->"Resumes "+java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,java.text.DateFormat.SHORT).format(java.util.Date(until))
+            AutoPeople.started(this)->state.message.ifBlank{"Ready to check new photos"}
+            else->"Organise your photos by person"
+        }
+        recognitionBar.visibility=if(running)View.VISIBLE else View.GONE
+        recognitionBar.isIndeterminate=state.progress?.total?.let{it<=0}?:true
+        recognitionBar.progress=state.progress?.percent?:0
+    }
+    private fun startRecognition(){
+        if(!RecognitionConsent.allowed(this)){RecognitionConsent.request(this,::startRecognition);return}
+        if(!MediaAccess.photos(this)){Toast.makeText(this,"Allow photo access to recognise people",Toast.LENGTH_SHORT).show();startActivity(Intent(this,MainActivity::class.java).putExtra("requestMedia",true));return}
+        if(android.os.Build.VERSION.SDK_INT>=33 && checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED && !getSharedPreferences("face-notifications",0).getBoolean("asked",false)){
+            getSharedPreferences("face-notifications",0).edit().putBoolean("asked",true).apply();requestPermissions(arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),7012);return
+        }
+        AutoPeople.resume(this)
+        runCatching{startForegroundService(Intent(this,FaceScanService::class.java).setAction(FaceScanService.GROUP))}
+            .onFailure{Toast.makeText(this,"Could not start recognition. Try again.",Toast.LENGTH_SHORT).show()}
+        recognitionControls(FaceJobs.state)
+    }
+    private fun pauseRecognition(){
+        AutoPeople.pauseForDay(this)
+        if(FaceJobs.state.busy)FaceJobs.publish(FaceJobs.state.copy(pausing=true,message="Pausing…"))
+        if(FaceJobs.state.busy && !FaceJobs.state.background)startService(Intent(this,FaceScanService::class.java).setAction(FaceScanService.PAUSE_DAY))else FaceNotifications.paused(this)
+        recognitionControls(FaceJobs.state)
+    }
     companion object{
         private val cache=PeopleCache<ViewData>();private val duplicateCache=PeopleCache<ViewData>()
         private val readLock=Any()
@@ -94,6 +140,12 @@ class PeopleActivity:Activity(){
         fun restore(context:android.content.Context){
             val app=context.applicationContext
             PeopleLaunchCache.preload(app)
+            warmWorker.execute{
+                if(MediaAccess.fullPhotos(app)){
+                    saved(app)?.let{cache.putPreview(app,it)}
+                    (GalleryData.peek(app)?:PhotoIndex.read(app))?.photos?.let{warm(app,it)}
+                }
+            }
         }
         fun searchIndex(context:android.content.Context,photos:List<PhotoRecord>):PeopleSearch.Index? {
             val data=cache.get(context)?.takeIf{it.photos.values.toList()==photos}?:return null
@@ -123,8 +175,9 @@ class PeopleActivity:Activity(){
             PeopleLaunchCache.save(context,data.profileCards().filter{it.person !in data.provisional}.mapNotNull{card->card.photo?.let{PeopleLaunchCache.Profile(card.person!!,card.title,card.subtitle,it,card.member.face,card.member.key.ordinal)}})
         }
         private fun persist(context:android.content.Context,data:ViewData,revision:Long){
-            if(!MediaAccess.cacheable(context) || revision!=PeopleData.version || data.diskStamp!=stamp(context))return
+            if(revision!=PeopleData.version || data.diskStamp!=stamp(context))return
             saveLaunch(context,data)
+            if(!MediaAccess.cacheable(context))return
             val file=snapshotFile(context);var stream:java.io.FileOutputStream?=null
             runCatching {
                 stream=file.startWrite()
@@ -135,13 +188,14 @@ class PeopleActivity:Activity(){
         }
         fun warm(context:android.content.Context,photos:List<PhotoRecord>){
             val app=context.applicationContext
-            if(GalleryData.peek(app)?.photos!=photos)return
             if(cache.get(app)!=null || !MediaAccess.photos(app) || warming.get())return
             if(!warming.compareAndSet(false,true))return
             val revision=PeopleData.version;val media=GalleryData.version
             warmWorker.execute{try{
                 val signal=CancellationSignal();val data=readData(app,photos,signal,false){AutoPeople.allowed(app) && media==GalleryData.version}
-                if(media==GalleryData.version)cache.put(app,revision,data,media)
+                if(media==GalleryData.version){
+                    if(GalleryData.peek(app)?.photos==photos)cache.put(app,revision,data,media)else cache.putPreview(app,data)
+                }
                 val covers=data.rows.filter{it.status=="known" && it.person!=null}.groupBy{data.graph[it.person]?:it.person!!}
                     .filterKeys{it !in data.provisional}.values.sortedByDescending{it.map{row->row.key.uri}.distinct().size}.take(9).map{it.maxBy{row->row.face.score}}
                 for(cover in covers){
@@ -266,7 +320,7 @@ class PeopleActivity:Activity(){
                 profiles=items
                 if(folder){val uris=groups[groupId].orEmpty().map{it.key.uri}.toSet();val next=data.photos.values.filter{it.uri.toString() in uris};fullPhotos.submitList(next,invalidateThumbnails=next!=folderPhotos);folderPhotos=next;selectedPhotos.retainAll(next.map{it.uri.toString()}.toSet())}else if(searchMode)showProfiles()else cards.submit(items)
                 titleView?.text=if(duplicates)"Possible duplicates"else if(assignKeys.isNotEmpty())"Assign selected faces"else if(mergeInto!=null)"Choose same person"else if(review)"Needs review"else groupId?.let{labels[it]}?:"People"
-                caption.text=if(FaceJobs.state.busy)FaceJobs.state.message else if(duplicates)if(items.isEmpty())"No duplicate suggestions. You can still merge from a person’s options."else "Tap either face to inspect its group. Tap the labels to confirm Same person or Different people."else if(assignKeys.isNotEmpty())if(intent.getBooleanExtra("wholeGroup",false))"Choose the person to combine this face’s whole folder with."else "Choose the person for ${assignKeys.size} selected faces. Clear faces can improve their references; weak faces stay out of automatic references."else if(mergeInto!=null)"Choose a group containing the same person. Your confirmation joins their references; the join can be undone."else if(items.isEmpty())"No ${if(review)"unassigned faces"else"groups"} yet. Photos are recognised automatically in the background."else if(groupId!=null)if(folder)"${groups[groupId].orEmpty().map{it.key.uri}.distinct().size} photos"else"${items.size} faces · Long-press to select faces for correction."else if(review)"${items.size} faces · Tap to identify."else "${groups.size} people · Tap an unnamed face to identify."
+                caption.text=if(duplicates)if(items.isEmpty())"No duplicate suggestions. You can still merge from a person’s options."else "Tap either face to inspect its group. Tap the labels to confirm Same person or Different people."else if(assignKeys.isNotEmpty())if(intent.getBooleanExtra("wholeGroup",false))"Choose the person to combine this face’s whole folder with."else "Choose the person for ${assignKeys.size} selected faces. Clear faces can improve their references; weak faces stay out of automatic references."else if(mergeInto!=null)"Choose a group containing the same person. Your confirmation joins their references; the join can be undone."else if(items.isEmpty())"No ${if(review)"unassigned faces"else"groups"} yet. Photos are recognised automatically in the background."else if(groupId!=null)if(folder)"${groups[groupId].orEmpty().map{it.key.uri}.distinct().size} photos"else"${items.size} faces · Long-press to select faces for correction."else if(review)"${items.size} faces · Tap to identify."else "${groups.size} people · Tap an unnamed face to identify."
                 if(searchMode)caption.text=if(items.isEmpty() && data.provisional.isNotEmpty())"Learning people from more photos · ${data.provisional.size} pending profiles"else if(items.isEmpty())"People will appear as photos are recognised."else"Tap a profile for their photos. ${data.provisional.size} profiles awaiting more evidence."
                 controls()
 
@@ -384,7 +438,7 @@ class PeopleActivity:Activity(){
             worker.execute{val result=runCatching{contentResolver.openOutputStream(uri,"wt")?.use{it.write(report.toByteArray(Charsets.UTF_8))}?:error("Could not open report")};runOnUiThread{if(!isDestroyed)Toast.makeText(this,if(result.isSuccess)"Recognition report saved"else"Could not save report",Toast.LENGTH_SHORT).show()}}
         }
     }
-    override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){super.onRequestPermissionsResult(requestCode,permissions,grantResults);namesEditor.permissionResult(requestCode);deletion.onPermissionsResult(requestCode,grantResults)}
+    override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){super.onRequestPermissionsResult(requestCode,permissions,grantResults);if(requestCode==7012)startRecognition();namesEditor.permissionResult(requestCode);deletion.onPermissionsResult(requestCode,grantResults)}
     override fun onSaveInstanceState(state:Bundle){state.putString("profileQuery",profileQuery);state.putBoolean("selectingPhotos",selectingPhotos);state.putStringArrayList("selectedPhotos",ArrayList(selectedPhotos));deletion.save(state);super.onSaveInstanceState(state)}
     override fun onPause(){retryHandler.removeCallbacks(retryRead);editGate.cancel();if(!namesEditor.requestingPermission){identityChooser.dismiss();namesEditor.dismiss()};glide?.finish();active=false;epoch++;refreshing=false;refreshAgain=false;FaceJobs.remove(observer);PeopleData.remove(dataObserver);query?.cancel();super.onPause()}
     override fun onDestroy(){retryHandler.removeCallbacks(retryRead);deletion.close();contactSync.close();glide?.detach();worker.shutdown();cards.close();fullPhotos.close();identityChooser.close();namesEditor.close();super.onDestroy()}

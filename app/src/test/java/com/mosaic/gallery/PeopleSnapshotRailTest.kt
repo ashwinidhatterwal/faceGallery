@@ -134,4 +134,12 @@ class PeopleSnapshotRailTest {
         assertTrue(views.any{it.contentDescription=="Save tags"});assertFalse(views.filterIsInstance<android.widget.TextView>().any{it.text.contains("Tags appear") || it.text.contains("Place")})
         assertTrue(views.filterIsInstance<EditText>().single().hasFocus());c.destroy()
     }
+    @Test fun appStartupRestoresPeopleBeforeTheSectionIsOpened(){
+        seed();read();forget();PeopleActivity.restore(app)
+        @Suppress("UNCHECKED_CAST") val cache=PeopleActivity::class.java.getDeclaredField("cache").apply{isAccessible=true}.get(null) as PeopleCache<Any>
+        val deadline=System.nanoTime()+java.util.concurrent.TimeUnit.SECONDS.toNanos(5)
+        while(cache.preview(app,true)==null && System.nanoTime()<deadline){Thread.yield()}
+        assertNotNull(cache.preview(app,true))
+    }
+
 }

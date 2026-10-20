@@ -33,7 +33,7 @@ class FaceScanActivity:Activity(){
         header.addView(GalleryStyle.text(this,"Faces",30f),LinearLayout.LayoutParams(0,-2,1f))
         header.addView(GalleryStyle.action(this,"album","People",compact=true){startActivity(Intent(this,PeopleActivity::class.java))})
         root.addView(header)
-        root.addView(GalleryStyle.text(this,"Recognition and grouping start automatically when you open the gallery, and continue with the screen locked. Pause from the notification; start a scan here to resume.",14f,GalleryStyle.muted(this)).apply{setPadding(dp(20),dp(8),dp(20),dp(8))})
+        root.addView(GalleryStyle.text(this,"Start recognition from People. It continues when you leave the app. Pause for 24 hours or resume whenever you wish.",14f,GalleryStyle.muted(this)).apply{setPadding(dp(20),dp(8),dp(20),dp(8))})
         status=GalleryStyle.text(this,"Loading scan index…",14f).apply{setPadding(dp(20),dp(8),dp(20),dp(12))};root.addView(status)
         val buttons=LinearLayout(this).apply{gravity=Gravity.CENTER;setPadding(dp(12),0,dp(12),dp(8))}
         action=Button(this).apply{text="Scan changes";isEnabled=false;setOnClickListener{if(FaceJobs.state.busy)pauseScan()else startScan(if(AutoPeople.enabled(this@FaceScanActivity))FaceScanService.DETECT else FaceScanService.GROUP)}}
@@ -82,7 +82,7 @@ class FaceScanActivity:Activity(){
         action.isEnabled=false;signatures.isEnabled=false;clear.isEnabled=false
         runCatching{startForegroundService(Intent(this,FaceScanService::class.java).setAction(mode))}.onFailure{status.text="Could not start background processing. Try again while this screen is open.";controls()}
     }
-    private fun pauseScan(){startService(Intent(this,FaceScanService::class.java).setAction(FaceScanService.PAUSE))}
+    private fun pauseScan(){startService(Intent(this,FaceScanService::class.java).setAction(FaceScanService.PAUSE_DAY))}
     private fun show(summary:FaceStore.Summary,progress:String=""){
         latestSummary=summary
         status.text="${summary.done} of ${photos.size} photos analysed · ${summary.faces} faces\nClear ${summary.counts["Anchor"]?:0} · Usable ${summary.counts["Support"]?:0} · Weak ${summary.counts["Shadow"]?:0}"+

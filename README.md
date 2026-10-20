@@ -1,6 +1,6 @@
-Current update: **1.0.0-rc16 / build 56**. See [the launch and gallery integration review](INSTANT-PEOPLE-GALLERY-REVIEW.md) for changes, checks and phone acceptance steps.
+Current update: **1.0.0-rc17 / build 57**. See [the People and recognition review](PEOPLE-RECOGNITION-REVIEW.md) for changes, checks and phone acceptance steps.
 
-# Face Gallery — Play release candidate 1.0.0-rc16 (56)
+# Face Gallery — Play release candidate 1.0.0-rc17 (57)
 
 Start with [publishing/START-HERE.md](publishing/START-HERE.md). This source includes store artwork, listing copy, policy/declaration drafts and release checks. Physical-device acceptance, public support details, privacy hosting and Play review remain owner steps.
 
@@ -14,7 +14,7 @@ Profile suggestions are computed in a batch on the existing worker and retained 
 
 Uncertain faces can suggest up to three names from manually named gallery groups and cached contact portraits. The photo's people panel shows the best suggested name with a question mark; tap an unnamed/temporary face in that panel or People to open the shared “Who is this?” picker. Suggestions do not name, merge or promote a group until you confirm them. Contact-linked gallery groups appear once under their saved name. Explicit separations, conflicting contact links, unavailable gallery references and excluded faces are respected. Contacts without a usable portrait cannot provide a face-based suggestion.
 
-**Settings > Sync contact photos**, also available in the People menu, performs a cancellable contact-only check. It uses the existing database writer lock, portrait/signature caches, comparison caches, retries and battery/thermal gates. It can run while automatic recognition or automatic contact matching is paused, provided recognition consent and contacts permission remain granted. It never switches automatic processing on/off, clears gallery recognition or forces unchanged portraits through inference. Leaving the screen cancels the visible check; committed results remain cached. Background schedules remain in place. A completed check updates the shared contact checkpoint so automatic work can reuse it.
+**Settings > Sync contact photos**, also available in the People menu, performs a cancellable contact-only check. It uses the existing database writer lock, portrait/signature caches, comparison caches, retries and cancellation. It can run while automatic recognition or automatic contact matching is paused, provided recognition consent and contacts permission remain granted. It never switches automatic processing on/off, clears gallery recognition or forces unchanged portraits through inference. Leaving the screen cancels the visible check; committed results remain cached. Background schedules remain in place. A completed check updates the shared contact checkpoint so automatic work can reuse it.
 
 No model change or database migration is introduced in build 46. Existing photos, signatures, saved names, contacts and corrections are preserved. The strict automatic naming thresholds remain unchanged; similarity suggestions require your confirmation.
 
@@ -34,7 +34,7 @@ Built from the current faceGallery repository, commit 871dd672cae1ee1ca5bd1b6075
 
 Enable contacts access in Settings > Recognition and contacts (or the existing name/contact dialog). With **Match contact photos automatically** enabled, background/foreground recognition compares suitable single-person contact portraits against gallery groups. Clear matches name and link unnamed groups. Missing, poor or ambiguous portraits retain existing behaviour. Saved names, contact links and manual face corrections take priority. Remove a wrong contact link through the existing name editor; it will not be automatically reattached.
 
-The cache is persistent, versioned by recognition model and refreshed on contact changes. Unchanged pixels reuse signatures even when a name/phone edit changes the provider timestamp. Skipped portraits are cached; errors back off and stop after three attempts per photo revision. Contact images never become gallery photos or extra face groups. Processing shares existing pause, heat and battery gates and has no new progress notification. Database upgrade 7 → 8 retains existing recognition and grouping results.
+The cache is persistent, versioned by recognition model and refreshed on contact changes. Unchanged pixels reuse signatures even when a name/phone edit changes the provider timestamp. Skipped portraits are cached; errors back off and stop after three attempts per photo revision. Contact images never become gallery photos or extra face groups. Processing shares the user pause controls. Progress notifications were added in rc17. Database upgrade 7 → 8 retains existing recognition and grouping results.
 
 The repository's current release signing workflow and secrets are preserved. A locally built debug APK uses the standard local Android debug key and may not update a previously signed installation. Build your signed APK/AAB using **Build release APK + AAB** with your existing repository secrets. Never uninstall a data-bearing installation merely to change signing keys.
 
@@ -84,7 +84,7 @@ The APK and AAB are signed using **the same key you provided**. On every manual 
 
 - Android Gradle Plugin 8.13.2, Kotlin 2.3.0, Gradle 8.13 and JDK 17.
 - Android API 36 and SDK Build Tools 35.0.0; minimum supported Android API 28 (Android 9).
-- App ID `com.mosaic.gallery`; version code 56; version name `1.0.0-rc16`.
+- App ID `com.mosaic.gallery`; version code 57; version name `1.0.0-rc17`.
 - `./gradlew :app:assembleDebug` makes a local debug APK, which Android signs with the developer machine's local debug key, not your Play upload key.
 
 ## Important release notes
@@ -98,7 +98,7 @@ The APK and AAB are signed using **the same key you provided**. On every manual 
 
 On first opening, Android asks for photo/storage access and optional contacts access. Existing installs ask for missing contacts access once. Declining contacts keeps the gallery usable; enable it later in Settings → Privacy. On Android 13+, access covers permitted photos and videos, not all files. Android 14+ can grant selected media only.
 
-Automatic recognition, grouping and contact portrait matching use saved progress and quiet persisted jobs after closing the screen. Work pauses below 20% battery (even while charging), at battery temperature 40°C or higher, at Android thermal status MODERATE or higher, or in battery saver. The periodic fallback no longer requires device idle; existing idle-only jobs are migrated. Warm/low-power jobs retry after 15 minutes without losing completed work. Android controls job timing; force stop or restricted battery settings can prevent execution until the app is reopened or restrictions are removed. No background progress notification is added.
+Automatic recognition, grouping and contact portrait matching use saved progress and quiet persisted jobs after closing the screen. App battery and temperature thresholds were removed in rc17; start and pause recognition from People. The periodic fallback no longer requires device idle; existing idle-only jobs are migrated. Interrupted work retains completed results. Android controls job timing; force stop or restricted battery settings can prevent execution until the app is reopened or restrictions are removed. Recognition progress is shown in a silent notification after user start.
 
 ## Photos and videos (0.9.0)
 
@@ -108,7 +108,7 @@ Android 13+ requests READ_MEDIA_IMAGES and READ_MEDIA_VIDEO. Android 14+ also su
 
 Gallery, people, viewer and selection menus use the same themed action panel. Settings opens a dedicated screen for recognition/contacts, people management, tools, permissions and about information. The launcher icon is adaptive, with a themed monochrome variant; editable SVG geometry and a PNG preview are in design/.
 
-The notification's Pause for 24 hours action schedules a persisted next-day wake-up. Restarting the phone restores the remaining delay. Once it expires, recognition resumes from saved work under the existing safety gates. Turning off Background recognition in Settings remains a permanent pause and cancels that timer. Android's scheduling and battery restrictions can delay the actual retry.
+The notification's Pause for 24 hours action schedules a persisted next-day wake-up. Restarting the phone restores the remaining delay. Once it expires, recognition resumes from saved work. Turning off Recognition enabled pauses for 24 hours; turning it on resumes immediately. Android's scheduling and battery restrictions can delay the actual retry.
 
 ## 0.9.1 repairs
 

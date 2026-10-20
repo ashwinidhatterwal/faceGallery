@@ -10,11 +10,11 @@ Use this explanation for the photo/video form. Demonstrate actual browsing of bo
 
 ## Foreground service: dataSync / local processing, other
 
-The user explicitly starts a face scan, signature build or grouping operation from Recognition tools. The service processes permitted local photos to generate saved face results and people groups. It displays an ongoing notification with a pause control, saves completed work and stops when finished, paused, permission is revoked or battery/thermal limits apply. Opening the gallery and regular scheduled work do not start a foreground service.
+The user explicitly starts a face scan, signature build or grouping operation from People or Recognition tools. The service processes permitted local photos to generate saved face results and people groups. It displays an ongoing notification with a pause control, saves completed work and stops when finished, paused, permission is revoked or Android ends its allowed session. Opening the gallery and regular scheduled work do not start a foreground service.
 
 Deferred work delays newly available groups but does not prevent gallery browsing. Interrupted work retains committed results; uncommitted items remain pending. The user can resume from Recognition tools, and scheduled jobs can later continue when allowed. It is not a network transfer, background video player or media transcoder.
 
-Video evidence: open Settings > Recognition tools, explicitly start a scan, show the notification and its Pause for 24 hours action, reopen the scan status and show saved progress. Host a viewable recording and provide its real URL. Record using consented test photos. Do not submit a mockup.
+Video evidence: open People, explicitly start recognition, show the notification and its Pause for 24 hours action, reopen the scan status and show saved progress. Host a viewable recording and provide its real URL. Record using consented test photos. Do not submit a mockup.
 
 ## Other app-content fields
 
@@ -25,7 +25,7 @@ Video evidence: open Settings > Recognition tools, explicitly start a scan, show
 | Reviewer instructions | On first launch choose Enable people grouping or Browse only, then grant selected/all media access. Contacts may be declined. Settings exposes recognition controls; no external test account needed |
 | Account creation/deletion | No account creation feature. Local data can be cleared in-app or Android app storage; original media is retained |
 | Contact permission | Optional names/photos/lookup links for local contact selection and portrait matching; no phone-number or email columns queried for matching |
-| Notifications | Explicit scan status and pause control; automatic jobs have no progress notification |
+| Notifications | Explicit scan status and pause control; saved background work also reports progress after the user has started recognition |
 | Boot receiver | Restores scheduled jobs; does not launch a foreground service from boot |
 | Accessibility / location / camera / microphone | No permissions for these features |
 | Target audience / rating | Owner must select actual intended audience and answer IARC questions. Do not claim a rating in advance |

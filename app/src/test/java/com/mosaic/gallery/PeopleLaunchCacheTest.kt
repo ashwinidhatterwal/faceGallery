@@ -60,4 +60,21 @@ class PeopleLaunchCacheTest {
         PeopleLaunchCache.save(app,listOf(profile));FaceStore(app).use{it.clear()}
         assertNull(PeopleLaunchCache.peek(app));assertNull(diskRead())
     }
+    @Test fun fullPhotoAccessKeepsLaunchDataEvenWithSelectedVideoScope(){
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_VISUAL_USER_SELECTED)
+        Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_MEDIA_VIDEO)
+        assertFalse(MediaAccess.cacheable(app));PeopleLaunchCache.save(app,listOf(profile));PeopleLaunchCache.forgetMemory()
+        assertEquals(listOf(profile),diskRead())
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_VIDEO)
+        assertEquals(listOf(profile),diskRead())
+    }
+
+    @Test fun previousReleaseLaunchSnapshotIsReadableWithoutRebuildingPeople(){
+        PeopleLaunchCache.save(app,listOf(profile));PeopleLaunchCache.forgetMemory()
+        val file=java.io.File(app.noBackupFilesDir,"people-launch.bin")
+        val payload=java.io.DataInputStream(file.inputStream()).use{it.readInt();it.readUTF();it.readBytes()}
+        java.io.DataOutputStream(file.outputStream()).use{it.writeInt(1);it.writeUTF(PeopleData.access(app)+":"+GroupRules.VERSION);it.write(payload)}
+        assertEquals(listOf(profile),diskRead())
+    }
+
 }

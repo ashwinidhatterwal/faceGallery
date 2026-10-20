@@ -27,14 +27,13 @@ class ContactPhotoSync(private val activity:Activity) {
         val shown=GalleryStyle.dialog(activity,root);dialog=shown
         shown.setOnDismissListener{cancel.cancel();if(dialog===shown)dialog=null}
         worker.execute{
-            val heat=FaceHeat(activity.applicationContext)
             var more=true;var retry:Long?=null;var unavailable=false
             val result=runCatching{
                 while(more && !cancel.isCanceled && !closed){
-                    if(!heat.canRun() || FaceJobs.state.busy){unavailable=true;break}
+                    if(FaceJobs.state.busy){unavailable=true;break}
                     val batch=FaceWork.write{
                         val deadline=SystemClock.elapsedRealtime()+20_000
-                        fun active()=!cancel.isCanceled && !closed && !FaceJobs.state.busy && heat.canRun() && SystemClock.elapsedRealtime()<deadline
+                        fun active()=!cancel.isCanceled && !closed && !FaceJobs.state.busy && SystemClock.elapsedRealtime()<deadline
                         if(!active())null else FaceStore(activity.applicationContext).use{ContactRecognition.runSafe(activity.applicationContext,it,::active,cancel,limit=4,manual=true)}
                     }
                     if(batch==null){unavailable=true;break}
@@ -45,7 +44,7 @@ class ContactPhotoSync(private val activity:Activity) {
                 if(closed || cancel.isCanceled || dialog!==shown)return@runOnUiThread
                 status.text=when{
                     result.isFailure->"Could not finish. Your saved recognition is preserved."
-                    unavailable->"Sync paused. Try again when recognition is idle and the phone is cool with enough battery."
+                    unavailable->"Sync paused. Try again when recognition is idle."
                     retry!=null->"Available photos checked. Some contacts are temporarily unavailable; automatic syncing can retry later."
                     else->"Contact photos synced. Clear matches are linked; similar faces have suggested names."
                 }

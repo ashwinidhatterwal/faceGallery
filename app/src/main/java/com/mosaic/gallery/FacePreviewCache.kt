@@ -15,12 +15,12 @@ internal object FacePreviewCache {
         return File(directory(context),"$digest.jpg")
     }
     fun read(context:Context,key:String):Bitmap? {
-        if(!MediaAccess.cacheable(context) || !MediaAccess.photos(context))return null
+        if(!MediaAccess.fullPhotos(context))return null
         val file=file(context,key);if(file.length() !in 1L..256_000L)return null
         return runCatching{BitmapFactory.decodeFile(file.absolutePath)?.takeIf{it.width<=320 && it.height<=320}.also{file.setLastModified(System.currentTimeMillis())}}.getOrNull()
     }
     fun save(context:Context,key:String,bitmap:Bitmap){
-        if(!MediaAccess.cacheable(context) || !MediaAccess.photos(context) || Thread.currentThread().isInterrupted)return
+        if(!MediaAccess.fullPhotos(context) || Thread.currentThread().isInterrupted)return
         val target=file(context,key);target.parentFile?.mkdirs();val atomic=AtomicFile(target);var stream:java.io.FileOutputStream?=null
         runCatching{stream=atomic.startWrite();check(bitmap.compress(Bitmap.CompressFormat.JPEG,88,stream!!));atomic.finishWrite(stream)}.onFailure{atomic.failWrite(stream)}
         if(writes.incrementAndGet()%32==0)prune(context)

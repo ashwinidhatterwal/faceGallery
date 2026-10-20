@@ -78,11 +78,10 @@ class ContactDiagnosticsActivity:Activity() {
                 val signal=android.os.CancellationSignal();cancel=signal;recheckSignal=signal
                 button.isEnabled=false;message.text="Checking this photo…"
                 worker.execute {
-                    val heat=FaceHeat(applicationContext)
                     val result=runCatching {
                         FaceWork.write {
-                            fun active()=!closed && !signal.isCanceled && !FaceJobs.state.busy && heat.canRun()
-                            check(active()){"Try again when recognition is idle and the phone is cool with enough battery"}
+                            fun active()=!closed && !signal.isCanceled && !FaceJobs.state.busy
+                            check(active()){"Try again when recognition is idle"}
                             FaceStore(applicationContext).use{ContactRecognition.recheck(applicationContext,it,entry.getString("contact_tag"),::active,signal)}
                         }
                     }
@@ -90,7 +89,7 @@ class ContactDiagnosticsActivity:Activity() {
                         recheckSignal=null
                         if(closed || isFinishing || isDestroyed || signal.isCanceled)return@runOnUiThread
                         if(result.getOrNull()==true){dialog.dismiss();load()}
-                        else {button.isEnabled=true;message.text=if(result.isFailure)"Could not recheck. Try when recognition is idle, the phone is cool and contacts permission is allowed. Saved results are preserved."else "Recheck paused. Saved results are preserved."}
+                        else {button.isEnabled=true;message.text=if(result.isFailure)"Could not recheck. Try when recognition is idle and contacts permission is allowed. Saved results are preserved."else "Recheck paused. Saved results are preserved."}
                     }
                 }
             }

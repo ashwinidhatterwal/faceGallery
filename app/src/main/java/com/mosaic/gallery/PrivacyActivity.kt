@@ -24,19 +24,19 @@ class PrivacyActivity:Activity() {
         root.addView(header)
         val body=LinearLayout(this).apply{orientation=LinearLayout.VERTICAL;val pad=(20*resources.displayMetrics.density).toInt();setPadding(pad,pad,pad,pad)}
         automatic=CheckBox(this).apply{
-            text="Background recognition";setTextColor(GalleryStyle.textColor(context))
+            text="Recognition enabled";setTextColor(GalleryStyle.textColor(context))
             isChecked=AutoPeople.enabled(this@PrivacyActivity)
             setOnCheckedChangeListener{_,enabled->
                 if(updating)return@setOnCheckedChangeListener
-                if(enabled){RecognitionConsent.request(this@PrivacyActivity,{AutoPeople.resume(this@PrivacyActivity);AutoPeople.ensure(this@PrivacyActivity)},{updating=true;automatic.isChecked=false;updating=false})}
+                if(enabled){RecognitionConsent.request(this@PrivacyActivity,{AutoPeople.resume(this@PrivacyActivity);startForegroundService(Intent(this@PrivacyActivity,FaceScanService::class.java).setAction(FaceScanService.GROUP))},{updating=true;automatic.isChecked=false;updating=false})}
                 else {
-                    AutoPeople.pause(this@PrivacyActivity)
+                    AutoPeople.pauseForDay(this@PrivacyActivity)
                     if(FaceJobs.state.busy)startService(Intent(this@PrivacyActivity,FaceScanService::class.java).setAction(FaceScanService.PAUSE))
                 }
             }
         }
         body.addView(automatic)
-        body.addView(GalleryStyle.text(this,"Pause automatic recognition without deleting saved people. Turn it on again to resume when the phone is ready.",14f,GalleryStyle.muted(this)))
+        body.addView(GalleryStyle.text(this,"Turn off to pause for 24 hours. Turn on to resume now. Saved people are kept.",14f,GalleryStyle.muted(this)))
         contactMatching=CheckBox(this).apply{
             text="Match contact photos automatically";setTextColor(GalleryStyle.textColor(context));isChecked=RecognitionConsent.allowed(this@PrivacyActivity) && ContactRecognition.enabled(this@PrivacyActivity)
             setOnCheckedChangeListener{_,enabled->

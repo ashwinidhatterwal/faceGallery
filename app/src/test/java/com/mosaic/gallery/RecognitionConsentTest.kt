@@ -40,7 +40,7 @@ class RecognitionConsentTest {
         val c=Robolectric.buildActivity(MainActivity::class.java).setup()
         ShadowAlertDialog.getLatestAlertDialog().getButton(AlertDialog.BUTTON_POSITIVE).performClick()
         Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
-        assertTrue(RecognitionConsent.allowed(app))
+        assertTrue(RecognitionConsent.allowed(app));assertFalse(AutoPeople.started(app))
         assertTrue(Manifest.permission.READ_CONTACTS in Shadows.shadowOf(c.get()).lastRequestedPermission.requestedPermissions)
         assertNull(Shadows.shadowOf(c.get()).nextStartedService);c.pause().stop().destroy()
     }

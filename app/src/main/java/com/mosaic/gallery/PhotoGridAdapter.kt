@@ -94,6 +94,7 @@ class PhotoGridAdapter(private val context: Context, private val click: (PhotoRe
         if(next==items)return
         items=next;notifyDataSetChanged()
     }
+    fun copyPreviewsFrom(other:PhotoGridAdapter){other.cache.snapshot().forEach{(key,value)->if(!value.isRecycled)cache.put(key,value)}}
     fun retryThumbnails(){cells.forEach{it.cancel()};cache.evictAll();workers.purge();notifyDataSetChanged()}
     private var shownSelectionMode=false
     fun scrollLabel(position:Int)=items.getOrNull(position)?.let{it.photo?.let{photo->GalleryDates.label(photo.dateTakenMillis)}?:it.title}.orEmpty()

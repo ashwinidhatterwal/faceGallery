@@ -19,8 +19,8 @@ internal object PeopleLaunchCache {
     private val worker=Executors.newSingleThreadExecutor()
     private val main=Handler(Looper.getMainLooper())
     private val diskLock=Any()
-    private fun scope(c:Context)=PeopleData.access(c)+":"+GroupRules.VERSION
-    private fun allowed(c:Context)=MediaAccess.cacheable(c) && MediaAccess.fullPhotos(c)
+    private fun scope(c:Context)="${c.filesDir}:${MediaAccess.fullPhotos(c)}:${c.checkSelfPermission(android.Manifest.permission.READ_CONTACTS)}:"+GroupRules.VERSION
+    private fun allowed(c:Context)=MediaAccess.fullPhotos(c)
     private fun file(c:Context)=AtomicFile(File(c.noBackupFilesDir,"people-launch.bin"))
     fun peek(c:Context):List<Profile>?=entry?.takeIf{allowed(c) && it.scope==scope(c) && it.generation==generation.get()}?.profiles
     fun preload(context:Context,onReady:((List<Profile>)->Unit)?=null){
@@ -43,7 +43,7 @@ internal object PeopleLaunchCache {
             val atomic=file(c);var stream:FileOutputStream?=null
             runCatching{
                 stream=atomic.startWrite();val out=DataOutputStream(BufferedOutputStream(stream))
-                out.writeInt(1);out.writeUTF(access);out.writeInt(profiles.size)
+                out.writeInt(2);out.writeUTF(access);out.writeInt(profiles.size)
                 profiles.forEach{p->
                     out.writeLong(p.id);out.writeUTF(p.title);out.writeUTF(p.subtitle);PhotoIndex.writePhoto(out,p.photo)
                     out.writeInt(p.ordinal)
@@ -61,7 +61,8 @@ internal object PeopleLaunchCache {
         return runCatching{
             val atomic=file(c);check(atomic.baseFile.length() in 1L..16L*1024*1024)
             DataInputStream(BufferedInputStream(atomic.openRead())).use{input->
-                check(input.readInt()==1);check(input.readUTF()==scope(c))
+                val version=input.readInt();check(version in 1..2)
+                val savedScope=input.readUTF();check(savedScope==if(version==1)PeopleData.access(c)+":"+GroupRules.VERSION else scope(c))
                 val count=input.readInt();check(count in 0..20_000)
                 val profiles=List(count){
                     val id=input.readLong();val title=input.readUTF();val subtitle=input.readUTF();val photo=PhotoIndex.readPhoto(input)

@@ -15,8 +15,8 @@ object RecognitionConsent {
         if(allowed(activity)){accepted();return}
         AlertDialog.Builder(activity)
             .setTitle("Organise people on your phone?")
-            .setMessage("Face Gallery uses permitted photos to detect faces and saves face signatures, people groups and names on this phone. Recognition can continue when the app is closed, while battery and temperature allow it.\n\nIf you allow optional contacts access, it also reads contact names and portrait photos to name matching groups locally. Photos, contacts and face signatures are not uploaded to the developer. Google's face detector may handle technical SDK diagnostics as described in Privacy.\n\nYou can correct matches, pause background recognition and clear face results in Settings. Choose Browse only to use the gallery without automatic recognition or contact matching.")
-            .setPositiveButton("Enable people grouping"){_,_->accept(activity);accepted()}
+            .setMessage("Face Gallery uses permitted photos to detect faces and saves face signatures, people groups and names on this phone. Start recognition from People when you are ready. It can continue when the app is closed. Pause for 24 hours or resume at any time.\n\nIf you allow optional contacts access, it also reads contact names and portrait photos to name matching groups locally. Photos, contacts and face signatures are not uploaded to the developer. Google's face detector may handle technical SDK diagnostics as described in Privacy.\n\nYou can correct matches, pause background recognition and clear face results in Settings. Choose Browse only to use the gallery without automatic recognition or contact matching.")
+            .setPositiveButton("Allow recognition"){_,_->accept(activity);accepted()}
             .setNegativeButton("Browse only"){_,_->decline(activity);declined()}
             .setOnCancelListener{declined()}
             .show().setCanceledOnTouchOutside(false)

@@ -21,12 +21,12 @@ class AutomaticPeopleTest {
     private val app get()=RuntimeEnvironment.getApplication()
     private val photo=PhotoRecord(1,Uri.parse("content://auto/1"),"one.jpg",120000,400,300,"Camera")
     private val face=FaceObservation(.1f,.1f,.4f,.5f,0f,0f,0f,120f,.95f,"Anchor")
-    @Before fun reset(){RecognitionConsent.accept(RuntimeEnvironment.getApplication());FaceJobs.publish(FaceJobs.State());app.deleteDatabase("faces.db");app.getSharedPreferences("automatic-people",0).edit().clear().commit();app.getSystemService(JobScheduler::class.java).cancelAll();Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_IMAGES);ShadowSystemClock.advanceBy(Duration.ofMinutes(2));ReflectionHelpers.setField(FaceWork,"editingUntil",0L)}
+    @Before fun reset(){RecognitionConsent.accept(RuntimeEnvironment.getApplication());FaceJobs.publish(FaceJobs.State());app.deleteDatabase("faces.db");app.getSharedPreferences("automatic-people",0).edit().clear().commit();AutoPeople.resume(app);app.getSystemService(JobScheduler::class.java).cancelAll();Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_IMAGES);ShadowSystemClock.advanceBy(Duration.ofMinutes(2));ReflectionHelpers.setField(FaceWork,"editingUntil",0L)}
     @After fun end(){Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_MEDIA_IMAGES);app.getSystemService(JobScheduler::class.java).cancelAll();app.deleteDatabase("faces.db")}
     @Test fun schedulingIsUniqueDurableAndNeedsNoNetwork(){
         repeat(3){AutoPeople.ensure(app)};val s=app.getSystemService(JobScheduler::class.java)
         assertEquals(3,s.allPendingJobs.size)
-        val batch=s.getPendingJob(AutoPeople.BATCH)!!;assertTrue(batch.isPersisted);assertTrue(batch.isRequireBatteryNotLow);assertTrue(batch.isRequireStorageNotLow);assertEquals(JobInfo.NETWORK_TYPE_NONE,batch.networkType)
+        val batch=s.getPendingJob(AutoPeople.BATCH)!!;assertTrue(batch.isPersisted);assertFalse(batch.isRequireBatteryNotLow);assertTrue(batch.isRequireStorageNotLow);assertEquals(JobInfo.NETWORK_TYPE_NONE,batch.networkType)
         val periodic=s.getPendingJob(AutoPeople.DISCOVER)!!;assertTrue(periodic.isPeriodic);assertTrue(periodic.isPersisted);assertFalse(periodic.isRequireDeviceIdle)
         assertNotNull(s.getPendingJob(AutoPeople.WATCH)!!.triggerContentUris)
     }
@@ -104,9 +104,9 @@ class AutomaticPeopleTest {
         screen.stop().destroy()
     }
     @Test fun noWorkIsScheduledWithoutPhotoAccess(){Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_MEDIA_IMAGES);AutoPeople.ensure(app);assertTrue(app.getSystemService(JobScheduler::class.java).allPendingJobs.isEmpty())}
-    @Test fun heatAndBatteryPolicyHasNoChargingOverrideForHeat(){
-        fun state(b:Int=70,c:Boolean=false,t:Int=320,h:Int=0,s:Boolean=false)=FaceHeat.State(b,c,t,h,s)
-        assertTrue(FaceHeat.safe(state()));assertFalse(FaceHeat.safe(state(t=400)));assertFalse(FaceHeat.safe(state(h=2)));assertTrue(FaceHeat.safe(state(b=20)));assertFalse(FaceHeat.safe(state(b=19)));assertFalse(FaceHeat.safe(state(s=true)));assertFalse(FaceHeat.safe(state(c=true,t=400)));assertTrue(FaceHeat.safe(state(b=20,c=true)));assertFalse(FaceHeat.safe(state(b=19,c=true)));assertTrue(FaceHeat.safe(state(t=0)))
+    @Test fun noRecognitionJobHasAppBatteryOrChargingConstraints(){
+        AutoPeople.ensure(app)
+        for(job in app.getSystemService(JobScheduler::class.java).allPendingJobs){assertFalse(job.isRequireBatteryNotLow);assertFalse(job.isRequireCharging)}
     }
     @Test fun failedUnchangedPhotosAreNotAutomaticallyRetriedForever(){FaceStore(app).use{f->f.save(photo,emptyList(),"bad image");assertEquals(listOf(photo),f.pending(listOf(photo)));assertTrue(f.pending(listOf(photo),false).isEmpty());assertEquals(1,f.pending(listOf(photo.copy(modifiedMillis=999)),false).size)}}
     @Test fun failedSignaturesRequireManualRetryOrOneRefinement(){FaceStore(app).use{f->f.save(photo,listOf(face));f.saveSignature(photo.uri.toString(),0,null,"error","decode");assertEquals(1,f.pendingSignatures(listOf(photo)).size);assertTrue(f.pendingSignatures(listOf(photo),false).isEmpty());val key=GroupRules.Key(photo.uri.toString(),0);assertTrue(f.needsRefinement(key));f.refined(key);assertFalse(f.needsRefinement(key))}}
@@ -138,27 +138,20 @@ class AutomaticPeopleTest {
         assertEquals(1,job.detections);assertEquals(1,job.encodes)
         assertTrue(job.onStartJob(parameters()));finish();assertEquals(1,job.detections);assertEquals(1,job.encodes);c.destroy()
     }
-    @Test fun refinementJobsDoNotRematchEveryPhotoAndSaveFinalRevision(){
+    @Test fun usableMatchesAppearWithoutWaitingForEveryRefinementAndAreNotRepeated(){
         val c=Robolectric.buildService(Pipeline::class.java).create();val job=c.get()
         job.records=(1..4).map{photo.copy(id=it.toLong(),uri=Uri.parse("content://auto/$it"))}
         FaceStore(app).use{f->
             job.records.forEach{p->f.save(p,listOf(face));f.saveSignature(p.uri.toString(),0,FloatArray(128){if(it==0)1f else 0f})}
-            val people=PeopleStore(f)
-            people.nameFace(GroupRules.Key(job.records.first().uri.toString(),0),"Person")
+            val people=PeopleStore(f);people.nameFace(GroupRules.Key(job.records.first().uri.toString(),0),"Person")
             people.members().filter{it.person==null}.forEach{people.record(it,GroupRules.Decision())}
         }
-        repeat(2){
-            assertTrue(job.onStartJob(parameters()));finish()
-            FaceStore(app).use{f->assertEquals(3,PeopleStore(f).pending().size)}
-            assertTrue(AutoPeople.needsGrouping(app))
-        }
         assertTrue(job.onStartJob(parameters()));finish()
-        assertEquals(3,job.refinements)
-        FaceStore(app).use{f->assertTrue(PeopleStore(f).pending().isEmpty())}
-        assertFalse(AutoPeople.needsGrouping(app))
+        FaceStore(app).use{assertTrue(PeopleStore(it).pending().isEmpty())}
+        assertFalse(AutoPeople.needsGrouping(app));val refinements=job.refinements
+        assertTrue(refinements<=1)
         assertTrue(job.onStartJob(parameters()));finish()
-        assertEquals(3,job.refinements);assertEquals(0,job.detections);assertEquals(0,job.encodes)
-        c.destroy()
+        assertEquals(refinements,job.refinements);assertEquals(0,job.detections);assertEquals(0,job.encodes);c.destroy()
     }
     @Test fun anEditStopsAutomaticWorkAndWaitsForItsIdleSignal(){
         val screen=Robolectric.buildActivity(android.app.Activity::class.java).setup();val gate=PeopleEditGate(screen.get());var called=false
@@ -176,25 +169,20 @@ class AutomaticPeopleTest {
         job.records=(1..20).map{PhotoRecord(it.toLong(),Uri.parse("content://auto/$it"),"$it.jpg",it*120000L,400,300,"Camera")}
         assertTrue(job.onStartJob(parameters()));finish();assertEquals(8,job.detections);assertEquals(8,job.encodes)
         val followup=app.getSystemService(JobScheduler::class.java).getPendingJob(AutoPeople.BATCH)!!
-        assertEquals(60_000L,followup.minLatencyMillis);c.destroy()
+        assertEquals(1000L,followup.minLatencyMillis);c.destroy()
     }
-    @Test fun aWarmPhoneDefersBeforeOpeningPhotosWithoutNotifications(){
+    @Test fun warmPhoneProcessesAndPublishesReadableProgress(){
         Shadows.shadowOf(app.getSystemService(PowerManager::class.java)).setCurrentThermalStatus(2)
         val c=Robolectric.buildService(Pipeline::class.java).create();val job=c.get()
-        assertTrue(job.onStartJob(parameters()));finish();assertEquals(0,job.detections);assertEquals(0,job.encodes)
-        assertEquals(15*60_000L,app.getSystemService(JobScheduler::class.java).getPendingJob(AutoPeople.BATCH)!!.minLatencyMillis)
-        assertTrue(app.getSystemService(android.app.NotificationManager::class.java).activeNotifications.isEmpty());c.destroy()
+        assertTrue(job.onStartJob(parameters()));finish();assertEquals(1,job.detections);assertEquals(1,job.encodes)
+        assertTrue(app.getSystemService(android.app.NotificationManager::class.java).activeNotifications.isNotEmpty());c.destroy()
     }
-
-    @Test fun coolingResumesBackgroundPipelineWithoutRepeatingFinishedRecognition(){
+    @Test fun changingThermalStatusDoesNotRepeatCompletedRecognition(){
         val power=Shadows.shadowOf(app.getSystemService(PowerManager::class.java))
-        val c=Robolectric.buildService(Pipeline::class.java).create();val job=c.get()
-        power.setCurrentThermalStatus(2)
-        assertTrue(job.onStartJob(parameters()));finish();assertEquals(0,job.detections)
-        power.setCurrentThermalStatus(0)
-        assertTrue(job.onStartJob(parameters()));finish();assertEquals(1,job.detections);assertEquals(1,job.encodes)
-        assertTrue(job.onStartJob(parameters()));finish();assertEquals(1,job.detections);assertEquals(1,job.encodes)
-        c.destroy()
+        val c=Robolectric.buildService(Pipeline::class.java).create();val job=c.get();power.setCurrentThermalStatus(2)
+        assertTrue(job.onStartJob(parameters()));finish();assertEquals(1,job.detections)
+        power.setCurrentThermalStatus(0);assertTrue(job.onStartJob(parameters()));finish()
+        assertEquals(1,job.detections);assertEquals(1,job.encodes);c.destroy()
     }
     @Test fun selectedPhotoMemoryCacheIsPermissionScoped(){
         Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_MEDIA_IMAGES)

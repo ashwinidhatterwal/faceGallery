@@ -1,0 +1,50 @@
+{
+  "version_name": "1.0.0-rc17",
+  "version_code": 57,
+  "baseline_commit": "db5d762212efe327cbbef2c70e947f839514dea7",
+  "validated_at_utc": "2026-10-20T08:42:31.874757+00:00",
+  "gradle_tasks": [
+    "testDebugUnitTest",
+    "lintRelease",
+    "assembleRelease",
+    "bundleRelease"
+  ],
+  "gradle_result": "BUILD SUCCESSFUL",
+  "unit_tests": {
+    "tests": 526,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "lint": {
+    "Warning": 160
+  },
+  "release_tool_tests": {
+    "tests": 4,
+    "failures": 0
+  },
+  "publishing_checks": "passed",
+  "diff_check": "passed",
+  "release_verification": {
+    "model_sha256": "35e2fc149c76efefefbc264fcb5153a467a1b490a82001aba19bd7fc432ec235",
+    "native_libraries": [
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libface_detector_v2_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/arm64-v8a/libtensorflowlite_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libface_detector_v2_jni.so",
+      "app/build/outputs/bundle/release/app-release.aab:base/lib/x86_64/libtensorflowlite_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libface_detector_v2_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/arm64-v8a/libtensorflowlite_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libface_detector_v2_jni.so",
+      "app/build/outputs/apk/release/app-release-unsigned.apk:lib/x86_64/libtensorflowlite_jni.so"
+    ],
+    "signed_required": false,
+    "apk_sha256": "e80a5bf223c98a72d953b63bd6e3b0311c32840fcdcc21a1065b8e92beae8c93",
+    "bundle_sha256": "cbf94a415fc7a4a9154efff1ad0fd563db5c7e29e78893903057c201ec344fe9"
+  },
+  "limitations": [
+    "Release artifacts are unsigned. Use the existing release signing key for an update.",
+    "No physical-device startup latency or frame-time measurements were performed.",
+    "Android can delay scheduled background execution; force-stop requires reopening the app."
+  ],
+  "github_pushed": false
+}

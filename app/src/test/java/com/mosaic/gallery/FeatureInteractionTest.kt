@@ -74,7 +74,8 @@ class FeatureInteractionTest{
             val cover=(field("adapter").get(activity) as PhotoGridAdapter).albumView(chosen)!!
             call("openAlbum",chosen,cover);layout(root)
             val folder=field("grid").get(activity) as RecyclerView
-            assertEquals(folder.scaleX,folder.scaleY,0.001f);assertNotNull(folder.clipBounds)
+            assertEquals(1f,folder.scaleX,0.001f);assertNull(folder.clipBounds);assertNotNull(folder.background)
+            folder.viewTreeObserver.dispatchOnPreDraw()
             shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
             assertEquals("Albums",field("page").get(activity));assertTrue(field("folderOpen").getBoolean(activity));assertNotSame(grid,field("grid").get(activity));assertEquals(4,((field("grid").get(activity) as RecyclerView).layoutManager as GridLayoutManager).spanCount)
             call("handleBack");layout(root);shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500));layout(root)

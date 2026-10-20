@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.*
 import android.provider.MediaStore
 import android.view.View
+import android.view.ViewTreeObserver
 import android.widget.*
 import java.util.concurrent.Executors
 import androidx.recyclerview.widget.RecyclerView
@@ -126,7 +127,7 @@ class MainActivity : Activity() {
         galleryRoot.visibility=View.VISIBLE
         AutoPeople.ensure(this,0)
         // Schedule saved work before a potentially slow media query.
-        if(!getDatabasePath("faces.db").exists() && FaceHeat(this).canRun())launchAutomaticRecognition()
+        if(!getDatabasePath("faces.db").exists())launchAutomaticRecognition()
         if(needsRefresh || loadedAccess!=currentAccess() || loadedScope!=MediaAccess.scope(this) || GalleryData.peek(this)==null)refreshGallery()
         else {
             val favorites=GalleryStyle.favorites(this)
@@ -201,11 +202,13 @@ class MainActivity : Activity() {
         val image=(cover as? android.view.ViewGroup)?.getChildAt(0)?:cover
         folderOrigin=FolderTransition.bounds(gridHost,image)
         parentGrid=grid;parentAdapter=adapter
-        adapter=createAdapter();grid=newGrid(adapter);gridHost.addView(grid,FrameLayout.LayoutParams(-1,-1));attachGlide()
+        adapter=createAdapter().also{it.copyPreviewsFrom(parentAdapter!!)};grid=newGrid(adapter);grid.alpha=0f;grid.setBackgroundColor(GalleryStyle.canvas(this));gridHost.addView(grid,FrameLayout.LayoutParams(-1,-1));attachGlide()
         album=chosen;folderOpen=true;page="Albums";scrollPosition=0;render()
-        if(chosen.startsWith(MediaTags.PREFIX)){
-            grid.alpha=0f;grid.post{grid.animate().alpha(1f).setDuration(180).withEndAction{openingAlbum=false}.start()}
-        }else folderAnimation=FolderTransition.play(gridHost,grid,folderOrigin,true){openingAlbum=false}
+        val opening=grid
+        opening.viewTreeObserver.addOnPreDrawListener(object:ViewTreeObserver.OnPreDrawListener{
+            override fun onPreDraw():Boolean{opening.viewTreeObserver.removeOnPreDrawListener(this)
+                folderAnimation=FolderTransition.play(gridHost,opening,folderOrigin,true){openingAlbum=false};return true}
+        })
     }
     private fun closeAlbum(){
         if(openingAlbum)return
@@ -217,9 +220,8 @@ class MainActivity : Activity() {
         if(grid.layoutManager==null){render();grid.layoutManager?.onRestoreInstanceState(albumLayout)}else{adapter.submitAlbums(allPhotos);updateSelection()}
         attachGlide()
         val target=adapter.albumView(chosen)?.let{FolderTransition.bounds(gridHost,it)}?:folderOrigin
-        if(chosen.startsWith(MediaTags.PREFIX)){
-            closingGrid.animate().alpha(0f).setDuration(160).withEndAction{gridHost.removeView(closingGrid);closingAdapter.close();openingAlbum=false}.start()
-        }else folderAnimation=FolderTransition.play(gridHost,closingGrid,target,false){gridHost.removeView(closingGrid);closingAdapter.close();openingAlbum=false}
+        adapter.copyPreviewsFrom(closingAdapter)
+        folderAnimation=FolderTransition.play(gridHost,closingGrid,target,false){gridHost.removeView(closingGrid);closingAdapter.close();openingAlbum=false}
     }
     private fun switchPage(value:String){
         if(openingAlbum)return
@@ -303,7 +305,7 @@ class MainActivity : Activity() {
         checkingAutomatic=true
         val photos=allPhotos;val access=currentAccess()
         io.execute{
-            val pending=runCatching{FaceHeat(this).canRun() && AutoPeople.hasPending(this,photos)}.getOrDefault(false)
+            val pending=runCatching{AutoPeople.hasPending(this,photos)}.getOrDefault(false)
             handler.post{
                 checkingAutomatic=false
                 // The query may finish after the user leaves. Only a visible activity may launch this service.
@@ -339,11 +341,11 @@ class MainActivity : Activity() {
             // Publish the saved index first; validation continues on this same worker.
             if(loadedAccess==null){
                 val cached=PhotoIndex.read(this)
-                val pending=cached!=null && AutoPeople.canStartVisible(this) && runCatching{FaceHeat(this).canRun() && AutoPeople.hasPending(this,cached.photos)}.getOrDefault(false)
+                val pending=cached!=null && AutoPeople.canStartVisible(this)
                 if(cached!=null)runOnUiThread{
                     if(active && !query.isCanceled && token==revision && !isDestroyed && currentAccess()==access && MediaAccess.scope(this)==scope){
                         allPhotos=cached.photos;unreadableVolumes=cached.unreadableVolumes;loadedAccess=access;loadedScope=scope;progress.visibility=View.GONE
-                        render();grid.layoutManager?.onRestoreInstanceState(savedLayout)
+                        render();grid.layoutManager?.onRestoreInstanceState(savedLayout);PeopleActivity.warm(this,cached.photos)
                         // Start from the saved index before a slow MediaStore validation can delay the handoff.
                         if(pending)launchAutomaticRecognition()
                     }

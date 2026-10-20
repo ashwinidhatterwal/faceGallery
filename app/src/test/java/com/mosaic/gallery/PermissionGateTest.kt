@@ -63,12 +63,14 @@ class PermissionGateTest {
         activity.onRequestPermissionsResult(1001,arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE),intArrayOf(PackageManager.PERMISSION_DENIED))
         assertTrue(activity.isFinishing);controller.pause().stop().destroy()
     }
-    @Test fun grantingBothPermissionsSchedulesContactsAndPhotosInBackground(){
+    @Test fun grantingBothPermissionsWaitsForExplicitRecognitionStart(){
         val app=RuntimeEnvironment.getApplication()
         val c=Robolectric.buildActivity(MainActivity::class.java).setup()
         shadowOf(app).grantPermissions(Manifest.permission.READ_EXTERNAL_STORAGE,Manifest.permission.READ_CONTACTS)
         c.get().onRequestPermissionsResult(1001,arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE,Manifest.permission.READ_CONTACTS),intArrayOf(PackageManager.PERMISSION_GRANTED,PackageManager.PERMISSION_GRANTED))
         val scheduler=app.getSystemService(android.app.job.JobScheduler::class.java)
+        assertNull(scheduler.getPendingJob(AutoPeople.BATCH));assertFalse(AutoPeople.started(app))
+        AutoPeople.resume(app);AutoPeople.ensure(app)
         assertTrue(scheduler.getPendingJob(AutoPeople.BATCH)!!.isPersisted)
         assertTrue(scheduler.getPendingJob(AutoPeople.WATCH)!!.triggerContentUris!!.any{it.uri==android.provider.ContactsContract.Contacts.CONTENT_URI})
         c.pause().stop().destroy()

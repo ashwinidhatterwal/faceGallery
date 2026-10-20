@@ -33,7 +33,7 @@ class BackgroundScanTest {
     }
     @Test fun automaticSessionContinuesAfterClosingGalleryAndKeepsRecoveryScheduled(){
         Shadows.shadowOf(app).grantPermissions(android.Manifest.permission.READ_MEDIA_IMAGES)
-        app.getSharedPreferences("automatic-people",0).edit().clear().commit()
+        app.getSharedPreferences("automatic-people",0).edit().clear().commit();AutoPeople.resume(app)
         val controller=Robolectric.buildService(ControlledService::class.java).create();val service=controller.get()
         service.onStartCommand(Intent(app,FaceScanService::class.java).setAction(FaceScanService.AUTO),0,1)
         assertTrue(service.entered.await(5,TimeUnit.SECONDS));assertEquals(FaceScanService.GROUP,FaceJobs.state.mode)
@@ -43,8 +43,8 @@ class BackgroundScanTest {
         assertTrue(app.getSystemService(android.app.job.JobScheduler::class.java).getPendingJob(AutoPeople.BATCH)!!.isPersisted)
         assertTrue(app.getSystemService(NotificationManager::class.java).activeNotifications.isNotEmpty())
         val notification=app.getSystemService(NotificationManager::class.java).activeNotifications.single().notification
-        assertEquals("Working quietly in the background",notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT))
-        assertFalse(notification.extras.containsKey(android.app.Notification.EXTRA_PROGRESS))
+        assertTrue(notification.extras.getCharSequence(android.app.Notification.EXTRA_TEXT).toString().contains("Preparing"))
+        assertTrue(notification.extras.containsKey(android.app.Notification.EXTRA_PROGRESS))
         assertEquals("Pause for 24 hours",notification.actions.single().title)
         service.release.countDown();waitUntilIdle();controller.destroy()
     }
@@ -106,4 +106,13 @@ class BackgroundScanTest {
         assertEquals(android.app.Service.START_NOT_STICKY,service.onStartCommand(null,0,1));assertFalse(FaceJobs.state.busy);assertEquals(0,service.calls);controller.destroy()
     }
     @Test fun legacyForegroundTypeUsesSupportedApi(){assertEquals(0,FaceScanService.typeFor(28));assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,FaceScanService.typeFor(29));assertEquals(ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC,FaceScanService.typeFor(35))}
+    @Test fun preparingARecognitionRunDoesNotHoldThePeopleReadLock(){
+        val c=Robolectric.buildService(ControlledService::class.java).create();val service=c.get()
+        service.onStartCommand(Intent(app,FaceScanService::class.java).setAction(FaceScanService.GROUP),0,1)
+        assertTrue(service.entered.await(5,TimeUnit.SECONDS))
+        val executor=java.util.concurrent.Executors.newSingleThreadExecutor()
+        try{assertEquals("available",executor.submit<String>{FaceWork.read{"available"}}.get(1,TimeUnit.SECONDS))}
+        finally{service.release.countDown();waitUntilIdle();executor.shutdownNow();c.destroy()}
+    }
+
 }

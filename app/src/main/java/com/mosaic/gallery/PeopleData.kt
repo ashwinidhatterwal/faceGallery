@@ -93,11 +93,13 @@ class MosaicApplication:Application() {
             override fun onActivityDestroyed(a:Activity){}
         })
         PeopleActivity.restore(this)
+        val warmPeople=Runnable{GalleryData.peek(this)?.photos?.let{PeopleActivity.warm(this,it)}}
+        PeopleData.observe{if(started>0){main.removeCallbacks(warmPeople);main.postDelayed(warmPeople,400)}}
         val schedule=Runnable{AutoPeople.ensure(this@MosaicApplication)}
         val media=object:ContentObserver(main){override fun onChange(selfChange:Boolean){GalleryData.invalidate();main.removeCallbacks(schedule);main.postDelayed(schedule,2_000)}}
         runCatching{contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,true,media)}
         runCatching{contentResolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI,true,media)}
-        val contacts=object:ContentObserver(main){override fun onChange(selfChange:Boolean){ContactLinkSync.invalidate();PeopleActivity.invalidateSaved(this@MosaicApplication);PeopleData.changed();ContactRecognition.invalidate(this@MosaicApplication);main.removeCallbacks(schedule);main.postDelayed(schedule,2_000)}}
+        val contacts=object:ContentObserver(main){override fun onChange(selfChange:Boolean){ContactLinkSync.invalidate();PeopleData.changed();PeopleActivity.restore(this@MosaicApplication);ContactRecognition.invalidate(this@MosaicApplication);main.removeCallbacks(schedule);main.postDelayed(schedule,2_000)}}
         runCatching{contentResolver.registerContentObserver(ContactsContract.Contacts.CONTENT_URI,true,contacts)}
     }
 }

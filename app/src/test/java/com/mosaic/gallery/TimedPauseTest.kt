@@ -15,7 +15,7 @@ import org.robolectric.util.ReflectionHelpers
 class TimedPauseTest {
     private val app get()=RuntimeEnvironment.getApplication()
     private val scheduler get()=app.getSystemService(JobScheduler::class.java)
-    @Before fun setup(){RecognitionConsent.accept(RuntimeEnvironment.getApplication());app.getSharedPreferences("automatic-people",0).edit().clear().commit();scheduler.cancelAll();Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_IMAGES);FaceJobs.publish(FaceJobs.State())}
+    @Before fun setup(){RecognitionConsent.accept(RuntimeEnvironment.getApplication());app.getSharedPreferences("automatic-people",0).edit().clear().commit();AutoPeople.resume(app);scheduler.cancelAll();Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_MEDIA_IMAGES);FaceJobs.publish(FaceJobs.State())}
     @After fun end(){scheduler.cancelAll();app.getSharedPreferences("automatic-people",0).edit().clear().commit()}
     @Test fun notificationPauseCreatesOneDurableNextDayWake(){
         AutoPeople.ensure(app);AutoPeople.pauseForDay(app)
@@ -38,4 +38,10 @@ class TimedPauseTest {
     @Test fun permanentSettingsPauseOverridesNextDayWake(){AutoPeople.pauseForDay(app);AutoPeople.pause(app);AutoPeople.ensure(app);assertTrue(scheduler.allPendingJobs.isEmpty());assertFalse(AutoPeople.enabled(app,System.currentTimeMillis()+2*86400000L))}
     @Test fun explicitResumeCancelsTimedWake(){AutoPeople.pauseForDay(app);AutoPeople.resume(app);assertTrue(AutoPeople.enabled(app));assertNull(scheduler.getPendingJob(AutoPeople.RESUME))}
     @Test fun notificationIntentUsesTimedPause(){val c=Robolectric.buildService(FaceScanService::class.java).create();c.get().onStartCommand(Intent(app,FaceScanService::class.java).setAction(FaceScanService.PAUSE_DAY),0,1);assertFalse(AutoPeople.enabled(app));assertNotNull(scheduler.getPendingJob(AutoPeople.RESUME));c.destroy()}
+    @Test fun aPreviousReleaseTimedPauseResumesWithoutLosingItsStartedState(){
+        val prefs=app.getSharedPreferences("automatic-people",0)
+        prefs.edit().remove("user-started").putBoolean("paused",false).putLong("pause-until",System.currentTimeMillis()-1).commit()
+        assertTrue(AutoPeople.enabled(app));assertTrue(AutoPeople.started(app));assertTrue(AutoPeople.enabled(app))
+    }
+
 }
