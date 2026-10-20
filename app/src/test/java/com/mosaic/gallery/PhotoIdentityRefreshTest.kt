@@ -28,7 +28,7 @@ class PhotoIdentityRefreshTest {
         val photos=(1..2).map{PhotoRecord(it.toLong(),Uri.parse("content://media/external/images/media/$it"),"$it.jpg",it*120000L,100,100,"Camera",0,"",1000)}
         ShadowContentResolver.registerProviderInternal("media",object:ContentProvider(){
             override fun onCreate()=true
-            override fun query(uri:Uri,p:Array<out String>?,s:String?,a:Array<out String>?,o:String?):Cursor=MatrixCursor(p!!).apply{photos.forEach{addRow(arrayOf<Any>(it.id,it.displayName,it.dateTakenMillis,1,100,100,"Camera",0,"",1))}}
+            override fun query(uri:Uri,p:Array<out String>?,s:String?,a:Array<out String>?,o:String?):Cursor=MatrixCursor(p!!).apply{photos.forEach{addRow(arrayOf<Any>(it.id,it.displayName,it.dateTakenMillis,1,100,100,"Camera",0,"",1,"image/jpeg"))}}
             override fun openFile(uri:Uri,mode:String)=ParcelFileDescriptor.open(file,ParcelFileDescriptor.MODE_READ_ONLY)
             override fun getType(uri:Uri)="image/jpeg"
             override fun insert(uri:Uri,v:ContentValues?):Uri?=null

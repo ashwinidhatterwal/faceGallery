@@ -78,7 +78,7 @@ class AutomaticPeopleTest {
             override fun onCreate()=true
             override fun query(uri:Uri,p:Array<out String>?,s:String?,a:Array<out String>?,o:String?):android.database.Cursor{
                 entered.countDown();check(release.await(5,TimeUnit.SECONDS))
-                return android.database.MatrixCursor(p!!).apply{addRow(arrayOf<Any>(1,"1.jpg",120000,120,400,300,"Camera",1000,"",1))}
+                return android.database.MatrixCursor(p!!).apply{addRow(arrayOf<Any>(1,"1.jpg",120000,120,400,300,"Camera",1000,"",1,"image/jpeg"))}
             }
             override fun getType(uri:Uri)="image/jpeg"
             override fun insert(uri:Uri,v:ContentValues?):Uri?=null

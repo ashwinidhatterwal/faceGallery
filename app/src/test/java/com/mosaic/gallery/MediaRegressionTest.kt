@@ -66,7 +66,7 @@ class MediaRegressionTest {
     @Test fun deniedVideoProviderDoesNotHideAccessiblePhotos(){
         ShadowContentResolver.registerProviderInternal("media",object:ContentProvider(){
             override fun onCreate()=true
-            override fun query(uri:Uri,p:Array<out String>?,s:String?,a:Array<out String>?,o:String?)=if("video" in uri.pathSegments)throw SecurityException("Video access denied")else MatrixCursor(p!!).apply{addRow(arrayOf<Any>(1,"one.jpg",1000,1,400,300,"Camera",0,"",1))}
+            override fun query(uri:Uri,p:Array<out String>?,s:String?,a:Array<out String>?,o:String?)=if("video" in uri.pathSegments)throw SecurityException("Video access denied")else MatrixCursor(p!!).apply{addRow(arrayOf<Any>(1,"one.jpg",1000,1,400,300,"Camera",0,"",1,"image/jpeg"))}
             override fun getType(uri:Uri)="image/jpeg"
             override fun insert(uri:Uri,v:ContentValues?):Uri?=null
             override fun delete(uri:Uri,s:String?,a:Array<out String>?)=0

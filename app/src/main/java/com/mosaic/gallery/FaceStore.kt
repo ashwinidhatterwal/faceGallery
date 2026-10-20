@@ -186,5 +186,6 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
     }
     fun <T> snapshot(read:()->T):T=FaceWork.read{val db=readableDatabase;db.beginTransactionNonExclusive();try{return@read read()}finally{db.endTransaction()}}
     fun comparisonCheckpoint()=android.util.AtomicFile(java.io.File(context.filesDir,"people-comparisons.json"))
+    internal fun clearPeopleUi(){PeopleActivity.clearSaved(context)}
     fun clear(){val db=writableDatabase;db.beginTransaction();try{PeopleStore(this).reset();db.delete("identity_assertions",null,null);db.delete("operation_retries",null,null);db.delete("photos",null,null);db.setTransactionSuccessful()}finally{db.endTransaction()};changed()}
 }

@@ -20,7 +20,7 @@ class GalleryRepository(private val context:Context) {
                 val collection=if(video){if(Build.VERSION.SDK_INT>=29)MediaStore.Video.Media.getContentUri(volume)else MediaStore.Video.Media.EXTERNAL_CONTENT_URI}
                     else {if(Build.VERSION.SDK_INT>=29)MediaStore.Images.Media.getContentUri(volume)else MediaStore.Images.Media.EXTERNAL_CONTENT_URI}
                 val base=arrayOf(MediaStore.MediaColumns._ID,MediaStore.MediaColumns.DISPLAY_NAME,MediaStore.Images.Media.DATE_TAKEN,MediaStore.MediaColumns.DATE_ADDED,MediaStore.MediaColumns.WIDTH,MediaStore.MediaColumns.HEIGHT,MediaStore.Images.Media.BUCKET_DISPLAY_NAME,MediaStore.MediaColumns.SIZE,MediaStore.MediaColumns.DATA,MediaStore.MediaColumns.DATE_MODIFIED)
-                val projection=if(video)base+arrayOf(MediaStore.Video.Media.DURATION,MediaStore.MediaColumns.MIME_TYPE)else base
+                val projection=if(video)base+arrayOf(MediaStore.Video.Media.DURATION,MediaStore.MediaColumns.MIME_TYPE)else base+arrayOf(MediaStore.MediaColumns.MIME_TYPE)
                 fun query(fields:Array<String>){
                     checkNotNull(context.contentResolver.query(collection,fields,null,null,null,signal)).use{c->
                         fun number(name:String):Long=c.getColumnIndex(name).let{if(it>=0 && !c.isNull(it))c.getLong(it)else 0}
@@ -28,7 +28,7 @@ class GalleryRepository(private val context:Context) {
                         while(c.moveToNext()){
                             signal.throwIfCanceled()
                             photos+=PhotoRecord(number(MediaStore.MediaColumns._ID),ContentUris.withAppendedId(collection,number(MediaStore.MediaColumns._ID)),text(MediaStore.MediaColumns.DISPLAY_NAME),number(MediaStore.Images.Media.DATE_TAKEN).takeIf{it>0}?:number(MediaStore.MediaColumns.DATE_ADDED)*1000L,number(MediaStore.MediaColumns.WIDTH).toInt(),number(MediaStore.MediaColumns.HEIGHT).toInt(),text(MediaStore.Images.Media.BUCKET_DISPLAY_NAME),number(MediaStore.MediaColumns.SIZE),text(MediaStore.MediaColumns.DATA),number(MediaStore.MediaColumns.DATE_MODIFIED)*1000L,
-                                if(video)text(MediaStore.MediaColumns.MIME_TYPE).ifBlank{"video/*"}else "image/*",if(video)number(MediaStore.Video.Media.DURATION).coerceAtLeast(0)else 0)
+                                text(MediaStore.MediaColumns.MIME_TYPE).ifBlank{if(video)"video/*"else "image/*"},if(video)number(MediaStore.Video.Media.DURATION).coerceAtLeast(0)else 0)
                         }
                     }
                 }

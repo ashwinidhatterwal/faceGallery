@@ -27,7 +27,7 @@ class VideoLibraryTest {
             override fun onCreate()=true
             override fun query(uri:Uri,p:Array<out String>?,s:String?,a:Array<out String>?,o:String?)=MatrixCursor(p!!).apply{
                 if("video" in uri.pathSegments)addRow(arrayOf<Any>(1,"clip.mp4",500000,500,1920,1080,"Camera",100000,"",500,61000,"video/mp4"))
-                else addRow(arrayOf<Any>(1,"photo.jpg",300000,300,400,300,"Camera",1000,"",300))
+                else addRow(arrayOf<Any>(1,"photo.jpg",300000,300,400,300,"Camera",1000,"",300,"image/jpeg"))
             }
             override fun getType(uri:Uri)=if("video" in uri.pathSegments)"video/mp4"else"image/jpeg"
             override fun insert(uri:Uri,v:ContentValues?):Uri?=null

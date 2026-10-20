@@ -104,7 +104,8 @@ class PhotoActivity : Activity() {
         }
         window.sharedElementReturnTransition=android.transition.TransitionSet().apply{addTransition(android.transition.ChangeBounds());addTransition(android.transition.ChangeTransform());addTransition(android.transition.ChangeImageTransform());duration=250;interpolator=android.view.animation.DecelerateInterpolator()}
         val uri = state?.getString("uri")?.let(Uri::parse) ?: intent.data ?: run { finish(); return }
-        current = PhotoRecord(0, uri, intent.getStringExtra("name").orEmpty(), 0, 0, 0,mimeType=state?.getString("mimeType")?:intent.getStringExtra("mimeType")?:"image/*")
+        if(intent.hasExtra("reviewBrightness"))window.attributes=window.attributes.apply{screenBrightness=intent.getFloatExtra("reviewBrightness",-1f)}
+        current = PhotoRecord(0, uri, intent.getStringExtra("name").orEmpty(), 0, 0, 0,mimeType=state?.getString("mimeType")?:intent.getStringExtra("mimeType")?:intent.type?:"image/*")
         val initial=GroupPhotoPlaylist.read(this,intent.getStringExtra("groupPlaylist"))
         current=(initial?:GalleryData.peek(this)?.photos)?.firstOrNull{it.uri==uri}?:current
         album = intent.getStringExtra("album").orEmpty()
@@ -207,16 +208,20 @@ class PhotoActivity : Activity() {
         deletion.resume()
         pager.resume();status.text=""
         val signal = CancellationSignal(); querySignal = signal
+        val opened=current
         worker.execute {
+            val external=intent.getBooleanExtra("externalMedia",false)
+            val granted=if(external && opened!=null)runCatching{ExternalMedia.record(this,opened.uri,intent.type?:opened.mimeType,signal)}.getOrNull()else null
             val favorites=GalleryStyle.favorites(this)
-            val result = runCatching { val available=GalleryData.load(this,signal).photos;val tags=MediaTags.read(this)
-                val filtered=GroupPhotoPlaylist.read(this,intent.getStringExtra("groupPlaylist"))?:if(intent.getBooleanExtra("peopleSearch",false))PeopleSearch.filter(available,PeopleSearch.cachedRead(this,available),PeopleSearch.Query(intent.getStringExtra("searchText").orEmpty(),intent.getLongExtra("searchPerson",-1).takeIf{it>=0},intent.getStringExtra("searchFrom")?.let(java.time.LocalDate::parse),intent.getStringExtra("searchThrough")?.let(java.time.LocalDate::parse)),keepGoing={!signal.isCanceled}) else available.filter { (!intent.getBooleanExtra("cameraOnly",false) || CameraMedia.contains(it)) && (album.isEmpty() || if(album=="@favorites")it.uri.toString() in favorites else if(album=="@other")it.album.isBlank() else if(album.startsWith(MediaTags.PREFIX))tags.matches(it.uri.toString(),album) else it.album == album) && (intent.getStringExtra("query").orEmpty().let{q -> q.isEmpty() || it.displayName.contains(q,true) || it.album.contains(q,true)}) };available to filtered }.getOrNull()
+            val result = runCatching { val available=if(external)runCatching{GalleryData.load(this,signal).photos}.getOrElse{signal.throwIfCanceled();emptyList()}else GalleryData.load(this,signal).photos;val tags=MediaTags.read(this)
+                val filtered=GroupPhotoPlaylist.read(this,intent.getStringExtra("groupPlaylist"))?:if(intent.getBooleanExtra("peopleSearch",false))PeopleSearch.filter(available,PeopleSearch.cachedRead(this,available),PeopleSearch.Query(intent.getStringExtra("searchText").orEmpty(),intent.getLongExtra("searchPerson",-1).takeIf{it>=0},intent.getStringExtra("searchFrom")?.let(java.time.LocalDate::parse),intent.getStringExtra("searchThrough")?.let(java.time.LocalDate::parse)),keepGoing={!signal.isCanceled}) else available.filter { (!intent.getBooleanExtra("cameraOnly",false) || CameraMedia.contains(it)) && (album.isEmpty() || if(album=="@favorites")it.uri.toString() in favorites else if(album=="@other")it.album.isBlank() else if(album.startsWith(MediaTags.PREFIX))tags.matches(it.uri.toString(),album) else it.album == album) && (intent.getStringExtra("query").orEmpty().let{q -> q.isEmpty() || it.displayName.contains(q,true) || it.album.contains(q,true)}) };available to if(external && granted!=null)ExternalMedia.includeOpened(filtered,granted)else filtered }.getOrNull()
             runOnUiThread {
                 if (!active || signal.isCanceled || isDestroyed) return@runOnUiThread
                 val list=result?.second
                 if(intent.getBooleanExtra("peopleSearch",false) && list!=null && list.none{it.uri==current?.uri}){finish();return@runOnUiThread}
                 val previousPhotos=photos
-                photos = list?.takeIf{it.isNotEmpty()} ?: listOfNotNull(current)
+                photos = list?.takeIf{it.isNotEmpty()} ?: listOfNotNull(granted?:current)
+                if(external && current!=null && photos.none{it.uri==current?.uri})photos=ExternalMedia.includeOpened(photos,current!!)
                 val record = photos.find { it.uri == current?.uri }
                 if (record != null) { current = record; updateTitle();if(!record.isVideo)peopleSheet.prepare(record) }
                 if(photos!=previousPhotos){

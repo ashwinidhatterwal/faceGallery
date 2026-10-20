@@ -38,6 +38,7 @@ object PeopleData {
 class PeopleCache<T> {
     private data class Entry<T>(val access:String,val revision:Long,val media:Long,val data:T)
     private var entry:Entry<T>?=null
+    @Synchronized fun clear(){entry=null}
     @Synchronized fun get(context:Context):T?=entry?.takeIf{MediaAccess.allowed(context) && it.access==PeopleData.access(context) && it.revision==PeopleData.version && it.media==GalleryData.version}?.data
     @Synchronized fun preview(context:Context,allowMediaRefresh:Boolean=false):T?=entry?.takeIf{MediaAccess.allowed(context) && it.access==PeopleData.access(context) && (it.media==GalleryData.version || allowMediaRefresh && MediaAccess.cacheable(context))}?.data
     @Synchronized fun putPreview(context:Context,data:T){if(MediaAccess.cacheable(context))entry=Entry(PeopleData.access(context),Long.MIN_VALUE,GalleryData.version,data)}

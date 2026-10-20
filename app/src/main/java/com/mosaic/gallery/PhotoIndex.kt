@@ -25,7 +25,7 @@ object PhotoIndex {
             DataInputStream(BufferedInputStream(file(context).openRead())).use{input->
                 check(input.readInt()==VERSION);check(input.readUTF()==MediaAccess.scope(context))
                 val count=input.readInt();check(count in 0..1_000_000)
-                val photos=List(count){PhotoRecord(input.readLong(),Uri.parse(input.readUTF()),input.readUTF(),input.readLong(),input.readInt(),input.readInt(),input.readUTF(),input.readLong(),input.readUTF(),input.readLong(),input.readUTF(),input.readLong())}
+                val photos=List(count){readPhoto(input)}
                 check(input.read()==-1);GalleryRepository.Result(photos,0)
             }
         }.getOrNull()
@@ -43,10 +43,12 @@ object PhotoIndex {
             stream=atomic.startWrite()
             val output=DataOutputStream(BufferedOutputStream(stream))
             output.writeInt(VERSION);output.writeUTF(MediaAccess.scope(context));output.writeInt(result.photos.size)
-            result.photos.forEach{p->output.writeLong(p.id);output.writeUTF(p.uri.toString());output.writeUTF(p.displayName);output.writeLong(p.dateTakenMillis);output.writeInt(p.width);output.writeInt(p.height);output.writeUTF(p.album);output.writeLong(p.sizeBytes);output.writeUTF(p.path);output.writeLong(p.modifiedMillis);output.writeUTF(p.mimeType);output.writeLong(p.durationMillis)}
+            result.photos.forEach{writePhoto(output,it)}
             output.flush();atomic.finishWrite(stream);persisted=result
         }.onFailure{atomic.failWrite(stream)}
     }
+    internal fun readPhoto(input:DataInput)=PhotoRecord(input.readLong(),Uri.parse(input.readUTF()),input.readUTF(),input.readLong(),input.readInt(),input.readInt(),input.readUTF(),input.readLong(),input.readUTF(),input.readLong(),input.readUTF(),input.readLong())
+    internal fun writePhoto(output:DataOutput,p:PhotoRecord){output.writeLong(p.id);output.writeUTF(p.uri.toString());output.writeUTF(p.displayName);output.writeLong(p.dateTakenMillis);output.writeInt(p.width);output.writeInt(p.height);output.writeUTF(p.album);output.writeLong(p.sizeBytes);output.writeUTF(p.path);output.writeLong(p.modifiedMillis);output.writeUTF(p.mimeType);output.writeLong(p.durationMillis)}
     @Synchronized fun clear(context:Context){memory=null;persisted=null;owner="";file(context).delete()}
     @Synchronized fun forgetMemory(){memory=null;persisted=null;owner=""}
 }

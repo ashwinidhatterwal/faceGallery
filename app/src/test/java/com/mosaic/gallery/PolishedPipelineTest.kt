@@ -78,7 +78,7 @@ class PolishedPipelineTest {
             override fun query(uri:Uri,projection:Array<out String>?,selection:String?,args:Array<out String>?,sort:String?):android.database.Cursor {
                 if("video" in uri.pathSegments)return android.database.MatrixCursor(projection!!)
                 val count=++queries;entered.countDown();release.await(5,java.util.concurrent.TimeUnit.SECONDS)
-                return android.database.MatrixCursor(projection!!).apply{addRow(arrayOf<Any>(count,"one.jpg",1000,1,400,300,"Camera",0,"",1))}
+                return android.database.MatrixCursor(projection!!).apply{addRow(arrayOf<Any>(count,"one.jpg",1000,1,400,300,"Camera",0,"",1,"image/jpeg"))}
             }
             override fun getType(uri:Uri):String?=null
             override fun insert(uri:Uri,v:android.content.ContentValues?):Uri?=null

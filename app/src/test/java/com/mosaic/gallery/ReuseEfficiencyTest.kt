@@ -51,7 +51,7 @@ class ReuseEfficiencyTest {
             override fun query(uri:Uri,p:Array<out String>?,s:String?,a:Array<out String>?,o:String?):Cursor{
                 if("video" in uri.pathSegments)return android.database.MatrixCursor(p!!)
                 queries.incrementAndGet();started.countDown();check(release.await(5,TimeUnit.SECONDS))
-                return MatrixCursor(p!!).apply{addRow(arrayOf<Any>(1,"1.jpg",120000,120,400,300,"Camera",1000,"",1))}
+                return MatrixCursor(p!!).apply{addRow(arrayOf<Any>(1,"1.jpg",120000,120,400,300,"Camera",1000,"",1,"image/jpeg"))}
             }
             override fun getType(uri:Uri)="image/jpeg"
             override fun insert(uri:Uri,v:ContentValues?):Uri?=null

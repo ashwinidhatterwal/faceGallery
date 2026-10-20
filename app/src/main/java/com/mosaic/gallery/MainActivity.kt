@@ -72,7 +72,7 @@ class MainActivity : Activity() {
     override fun onCreate(state: Bundle?) {
         super.onCreate(state)
         photoColumns=(state?.getInt("photoColumns")?:getSharedPreferences("gallery-layout",0).getInt("photoColumns",4)).coerceIn(2,8)
-        cameraOnly=state?.getBoolean("cameraOnly")?:getSharedPreferences("gallery-layout",0).getBoolean("cameraOnly",true)
+        cameraOnly=state?.getBoolean("cameraOnly")?:if(intent.hasCategory(Intent.CATEGORY_APP_GALLERY) || intent.action==Intent.ACTION_VIEW)false else getSharedPreferences("gallery-layout",0).getBoolean("cameraOnly",true)
         permissionInFlight=state?.getBoolean("permissionInFlight")?:false
         scrollPosition = state?.getInt("scrollPosition") ?: 0
         album = state?.getString("album").orEmpty()
