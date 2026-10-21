@@ -7,5 +7,5 @@
   "support_email": "ashwinidhatterwal@gmail.com",
   "privacy_policy_url": "https://ashwinidhatterwal.github.io/faceGallery/privacy.html",
   "developer_name": "Ashwini Dhatterwal",
-  "release_notes": "Fixed zero-face photos triggering repeated matching. Recognition repairs resume from saved checkpoints; unchanged refinement plans are reused. Improved background responsiveness, exact match candidates, retry reporting and Pause/Resume. People snapshots no longer depend on video permission. Existing names and corrections are preserved."
+  "release_notes": "Recognition now stops cleanly when work finishes. Removed persistent retry notifications and periodic recognition polling. Unavailable photos retry silently with a bounded attempt limit; obsolete refinement retries no longer cause repeated wakeups. New photos still process automatically, and saved names, corrections and recognition progress are preserved."
 }

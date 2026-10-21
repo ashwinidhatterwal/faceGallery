@@ -4,8 +4,8 @@ package com.mosaic.gallery
 object SignatureRefinement {
     internal var graphBuilds=0L;private set
     private var cachedToken="";private var cached=emptyMap<String,Set<GroupRules.Key>>()
-    fun candidates(store:FaceStore,photos:List<PhotoRecord>,limit:Int=12):Map<PhotoRecord,Set<GroupRules.Key>> = FaceWork.read{synchronized(this){candidatesLocked(store,photos,limit)}}
-    private fun candidatesLocked(store:FaceStore,photos:List<PhotoRecord>,limit:Int):Map<PhotoRecord,Set<GroupRules.Key>> {
+    fun candidates(store:FaceStore,photos:List<PhotoRecord>,limit:Int=12,ignoreBackoff:Boolean=false):Map<PhotoRecord,Set<GroupRules.Key>> = FaceWork.read{synchronized(this){candidatesLocked(store,photos,limit,ignoreBackoff)}}
+    private fun candidatesLocked(store:FaceStore,photos:List<PhotoRecord>,limit:Int,ignoreBackoff:Boolean):Map<PhotoRecord,Set<GroupRules.Key>> {
         val access=photos.associateBy{it.uri.toString()}
         val unrefined=mutableSetOf<GroupRules.Key>()
         store.readableDatabase.rawQuery("SELECT f.uri,f.ordinal FROM faces f JOIN photos p ON p.uri=f.uri LEFT JOIN membership m ON m.uri=f.uri AND m.ordinal=f.ordinal WHERE p.status='done' AND f.authority!='Shadow' AND COALESCE(m.manual,0)=0 AND COALESCE(m.status,'unknown')!='excluded' AND NOT EXISTS(SELECT 1 FROM signature_retries r WHERE r.uri=f.uri AND r.ordinal=f.ordinal AND r.model=?)",arrayOf("hq1-${FaceVectors.MODEL}")).use{c->while(c.moveToNext())if(c.getString(0) in access)unrefined+=GroupRules.Key(c.getString(0),c.getInt(1))}
@@ -25,7 +25,7 @@ object SignatureRefinement {
             FaceWork.write{if(store.evidenceRevision()==generation)store.writableDatabase.execSQL("INSERT OR REPLACE INTO recognition_refinement_plan VALUES(1,?,?)",arrayOf<Any>(generation,payload))}
             cachedToken=store.readableDatabase.path+":"+generation+":"+payload.hashCode()
         }
-        return photos.mapNotNull{photo->cached[photo.uri.toString()]?.filter{it in unrefined && store.needsRefinement(it)}?.toSet()?.takeIf{it.isNotEmpty()}?.let{photo to it}}.take(limit).toMap()
+        return photos.mapNotNull{photo->cached[photo.uri.toString()]?.filter{it in unrefined && (ignoreBackoff || store.needsRefinement(it))}?.toSet()?.takeIf{it.isNotEmpty()}?.let{photo to it}}.take(limit).toMap()
     }
     fun run(store:FaceStore,uri:String,faces:List<FaceObservation>,keys:Set<GroupRules.Key>,keepGoing:()->Boolean,canCommit:()->Boolean=keepGoing,encode:(FaceObservation)->FloatArray?):Int {
         var updated=0

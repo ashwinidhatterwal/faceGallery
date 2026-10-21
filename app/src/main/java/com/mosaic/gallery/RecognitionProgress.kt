@@ -49,15 +49,9 @@ internal object FaceNotifications {
             .setContentText("Resumes $time").setContentIntent(open(c)).setOnlyAlertOnce(true).setShowWhen(false)
             .addAction(Notification.Action.Builder(null,"Resume now",resume(c)).build()).build())
     }
-    fun waiting(c:Context,message:String){
+    /** A future scheduled retry is idle: it must not look like active recognition. */
+    fun idle(c:Context){
         if(FaceJobs.state.busy && !FaceJobs.state.background)return
-        channel(c);manager(c).notify(ID,Notification.Builder(c,CHANNEL).setSmallIcon(R.drawable.ic_photo).setContentTitle("People recognition")
-            .setContentText(message).setContentIntent(open(c)).setOnlyAlertOnce(true).setShowWhen(false)
-            .addAction(Notification.Action.Builder(null,"Resume now",resume(c)).build()).build())
-    }
-    fun finished(c:Context,issues:Int=0){
-        if(FaceJobs.state.busy && !FaceJobs.state.background)return
-        channel(c);manager(c).notify(ID,Notification.Builder(c,CHANNEL).setSmallIcon(R.drawable.ic_photo).setContentTitle(if(issues>0)"Checked with issues"else"People are up to date")
-            .setContentText(if(issues>0)"$issues photos need attention in Recognition tools"else"Your accessible photos have been checked").setContentIntent(open(c)).setAutoCancel(true).setOnlyAlertOnce(true).build())
+        manager(c).cancel(ID)
     }
 }

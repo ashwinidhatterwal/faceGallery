@@ -177,6 +177,16 @@ class ContactRecognitionTest {
         FaceStore(app).use{store->assertTrue(ContactRecognition.run(app,store,{true}).retryDelay!! in 1..60000)}
         p.edit().putLong("retry-at",System.currentTimeMillis()-1).commit();assertTrue(ContactRecognition.needsWork(app))
     }
+    @Test fun unavailableAddressBookStopsRetryingAfterThreeFailuresUntilInvalidated(){
+        Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_CONTACTS)
+        ShadowContentResolver.registerProviderInternal(ContactsContractAuthority,Contacts().apply{unavailable=true})
+        val p=app.getSharedPreferences("contact-recognition",0)
+        FaceStore(app).use{store->
+            repeat(3){i->p.edit().putLong("provider-retry-at",0).commit();val result=ContactRecognition.runSafe(app,store,{true});if(i<2)assertNotNull(result.retryDelay)else assertNull(result.retryDelay)}
+            assertFalse(ContactRecognition.needsWork(app));assertNull(ContactRecognition.runSafe(app,store,{true}).retryDelay)
+            ContactRecognition.invalidate(app);assertTrue(ContactRecognition.needsWork(app))
+        }
+    }
     @Test fun unavailableAddressBookBacksOffWithoutFailingGalleryWork(){
         Shadows.shadowOf(app).grantPermissions(Manifest.permission.READ_CONTACTS);ShadowContentResolver.registerProviderInternal(ContactsContractAuthority,Contacts().apply{unavailable=true})
         FaceStore(app).use{store->val result=ContactRecognition.runSafe(app,store,{true});assertFalse(result.more);assertEquals(15*60_000L,result.retryDelay);assertFalse(ContactRecognition.needsWork(app));ContactRecognition.invalidate(app);assertTrue(ContactRecognition.needsWork(app))}

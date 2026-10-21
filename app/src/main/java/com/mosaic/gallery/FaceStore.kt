@@ -56,12 +56,13 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
     }
     fun nextRetryDelay(photos:List<PhotoRecord>?=null):Long? {
         val access=photos?.associateBy{it.uri.toString()};var next:Long?=null
+        val refinable by lazy{photos?.let{SignatureRefinement.candidates(this,it,Int.MAX_VALUE,ignoreBackoff=true).values.flatten().toSet()}}
         readableDatabase.rawQuery("SELECT uri,ordinal,phase,next_time,fingerprint FROM operation_retries WHERE attempts<3 AND model=?",arrayOf(FaceVectors.MODEL)).use{c->while(c.moveToNext()){
             val uri=c.getString(0);val photo=access?.get(uri);if(access!=null && photo==null)continue
             val relevant=when(c.getString(2)){
                 "detect"->photo==null || (c.getString(4)==fingerprint(photo) && pending(listOf(photo),true).isNotEmpty())
                 "encode"->hasCurrentFace(uri,c.getInt(1)) && needsSignature(uri,c.getInt(1))
-                "refine"->hasCurrentFace(uri,c.getInt(1)) && readableDatabase.rawQuery("SELECT 1 FROM signature_retries WHERE uri=? AND ordinal=? AND model=?",arrayOf(uri,c.getInt(1).toString(),"hq1-${FaceVectors.MODEL}")).use{!it.moveToFirst()}
+                "refine"->(refinable?.contains(GroupRules.Key(uri,c.getInt(1)))!=false) && hasCurrentFace(uri,c.getInt(1)) && readableDatabase.rawQuery("SELECT 1 FROM signature_retries WHERE uri=? AND ordinal=? AND model=?",arrayOf(uri,c.getInt(1).toString(),"hq1-${FaceVectors.MODEL}")).use{!it.moveToFirst()}
                 else->false
             }
             if(relevant)next=minOf(next?:Long.MAX_VALUE,c.getLong(3))

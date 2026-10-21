@@ -25,16 +25,16 @@ class AutomaticPeopleTest {
     @After fun end(){Shadows.shadowOf(app).denyPermissions(Manifest.permission.READ_MEDIA_IMAGES);app.getSystemService(JobScheduler::class.java).cancelAll();app.deleteDatabase("faces.db")}
     @Test fun schedulingIsUniqueDurableAndNeedsNoNetwork(){
         repeat(3){AutoPeople.ensure(app)};val s=app.getSystemService(JobScheduler::class.java)
-        assertEquals(3,s.allPendingJobs.size)
+        assertEquals(2,s.allPendingJobs.size)
         val batch=s.getPendingJob(AutoPeople.BATCH)!!;assertTrue(batch.isPersisted);assertFalse(batch.isRequireBatteryNotLow);assertTrue(batch.isRequireStorageNotLow);assertEquals(JobInfo.NETWORK_TYPE_NONE,batch.networkType)
-        val periodic=s.getPendingJob(AutoPeople.DISCOVER)!!;assertTrue(periodic.isPeriodic);assertTrue(periodic.isPersisted);assertFalse(periodic.isRequireDeviceIdle)
+        assertNull(s.getPendingJob(AutoPeople.DISCOVER))
         assertNotNull(s.getPendingJob(AutoPeople.WATCH)!!.triggerContentUris)
     }
     @Test fun upgradeRemovesOldIdleOnlyDiscoveryJob(){
         val scheduler=app.getSystemService(JobScheduler::class.java)
         scheduler.schedule(JobInfo.Builder(AutoPeople.DISCOVER,ComponentName(app,AutoPeopleJob::class.java)).setPeriodic(2*60*60_000L).setRequiresDeviceIdle(true).setPersisted(true).build())
         AutoPeople.ensure(app)
-        assertFalse(scheduler.getPendingJob(AutoPeople.DISCOVER)!!.isRequireDeviceIdle)
+        assertNull(scheduler.getPendingJob(AutoPeople.DISCOVER))
     }
     @Test fun pausePersistsAndBootDoesNotResumeItUntilAnExplicitScan(){
         AutoPeople.ensure(app);AutoPeople.pause(app)
@@ -43,7 +43,7 @@ class AutomaticPeopleTest {
         assertTrue(app.getSystemService(JobScheduler::class.java).allPendingJobs.isEmpty())
         assertTrue(app.getSharedPreferences("automatic-people",0).getBoolean("paused",false))
         AutoPeople.resume(app);AutoPeople.ensure(app)
-        assertEquals(3,app.getSystemService(JobScheduler::class.java).allPendingJobs.size)
+        assertEquals(2,app.getSystemService(JobScheduler::class.java).allPendingJobs.size)
     }
     @Test fun pendingCheckUsesSavedDetectionAndSignatures(){
         assertTrue(AutoPeople.hasPending(app,listOf(photo)))
@@ -188,7 +188,7 @@ class AutomaticPeopleTest {
         Shadows.shadowOf(app.getSystemService(PowerManager::class.java)).setCurrentThermalStatus(2)
         val c=Robolectric.buildService(Pipeline::class.java).create();val job=c.get()
         assertTrue(job.onStartJob(parameters()));finish();assertEquals(1,job.detections);assertEquals(1,job.encodes)
-        assertTrue(app.getSystemService(android.app.NotificationManager::class.java).activeNotifications.isNotEmpty());c.destroy()
+        assertTrue(app.getSystemService(android.app.NotificationManager::class.java).activeNotifications.isEmpty());c.destroy()
     }
     @Test fun changingThermalStatusDoesNotRepeatCompletedRecognition(){
         val power=Shadows.shadowOf(app.getSystemService(PowerManager::class.java))

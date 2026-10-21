@@ -45,12 +45,12 @@ object ContactRecognition {
         }}
     }
     fun setEnabled(c:Context,value:Boolean){
-        prefs(c).edit().putBoolean("enabled",value).remove("checked").remove("provider-retry-at").apply()
+        prefs(c).edit().putBoolean("enabled",value).remove("checked").remove("provider-retry-at").remove("provider-failures").apply()
         if(value)AutoPeople.ensure(c,1_000)
         else {val app=c.applicationContext;Thread({FaceWork.write{if(!enabled(app))FaceStore(app).use(::clear)}},"contact-cache-clear").start()}
     }
-    fun invalidate(c:Context){directory=null;prefs(c).edit().remove("checked").remove("provider-retry-at").apply()}
-    fun needsWork(c:Context):Boolean = available(c) && System.currentTimeMillis()>=prefs(c).getLong("provider-retry-at",0) && (prefs(c).getLong("provider-retry-at",0)>0 || prefs(c).getString("model","")!=PORTRAIT_MODEL || System.currentTimeMillis()-prefs(c).getLong("checked",0)>=CHECK_INTERVAL || prefs(c).getLong("faces",-1)!=AutoPeople.revision(c) || prefs(c).getLong("retry-at",0).let{it>0 && System.currentTimeMillis()>=it})
+    fun invalidate(c:Context){directory=null;prefs(c).edit().remove("checked").remove("provider-retry-at").remove("provider-failures").apply()}
+    fun needsWork(c:Context):Boolean = available(c) && prefs(c).getInt("provider-failures",0)<3 && System.currentTimeMillis()>=prefs(c).getLong("provider-retry-at",0) && (prefs(c).getLong("provider-retry-at",0)>0 || prefs(c).getString("model","")!=PORTRAIT_MODEL || System.currentTimeMillis()-prefs(c).getLong("checked",0)>=CHECK_INTERVAL || prefs(c).getLong("faces",-1)!=AutoPeople.revision(c) || prefs(c).getLong("retry-at",0).let{it>0 && System.currentTimeMillis()>=it})
     fun clear(store:FaceStore)=FaceWork.write{store.writableDatabase.delete("recognition_contacts",null,null);val removed=store.writableDatabase.delete("contact_signatures",null,null);store.writableDatabase.delete("contact_matches",null,null);store.writableDatabase.delete("contact_face_matches",null,null);if(removed>0)PeopleData.changed()}
     /** Aggregate local diagnostics only: no portrait pixels, contact identities or vectors. */
     fun diagnostics(c:Context,store:FaceStore,names:Boolean=false):org.json.JSONObject {
@@ -289,13 +289,19 @@ object ContactRecognition {
     /** A temporarily unavailable address book must not prevent gallery recognition. */
     fun runSafe(c:Context,store:FaceStore,keepGoing:()->Boolean,signal:CancellationSignal=CancellationSignal(),limit:Int=12,manual:Boolean=false):Result = try{run(c,store,keepGoing,signal,limit,manual)}catch(e:Exception){
         signal.throwIfCanceled()
-        if(!keepGoing())Result(true,null)else{val delay=if(e is DetectorUnavailable)60_000L else 15*60_000L;if(!manual)prefs(c).edit().putLong("provider-retry-at",System.currentTimeMillis()+delay).apply();Result(false,delay)}
+        if(!keepGoing())Result(true,null)else{
+            val failures=if(manual)1 else prefs(c).getInt("provider-failures",0)+1
+            val delay=if(failures>=3)null else if(e is DetectorUnavailable)60_000L else 15*60_000L
+            if(!manual)prefs(c).edit().putInt("provider-failures",failures).putLong("provider-retry-at",delay?.let{System.currentTimeMillis()+it}?:0).apply()
+            Result(false,delay)
+        }
     }
     /** Called under FaceWork's writer lock by both foreground and scheduled processing. */
     fun run(c:Context,store:FaceStore,keepGoing:()->Boolean,signal:CancellationSignal=CancellationSignal(),limit:Int=12,manual:Boolean=false):Result {
         fun permittedRun()=if(manual)permitted(c)else available(c)
         if(!permittedRun()){if(!manual && !permitted(c))clear(store);return Result(false,null)}
         if(!keepGoing())return Result(true,null)
+        if(!manual && prefs(c).getInt("provider-failures",0)>=3)return Result(false,null)
         if(!manual && !needsWork(c)){
             val now=System.currentTimeMillis();val p=prefs(c)
             val wake=listOf(p.getLong("provider-retry-at",0),p.getLong("retry-at",0)).filter{it>now}.minOrNull()
@@ -326,7 +332,7 @@ object ContactRecognition {
                 prefs(c).edit().putString("last-stage",if(active())"complete"else"matching_interrupted").apply()
             }else if(retry!=null)prefs(c).edit().putString("last-stage","waiting_for_portrait_retry").apply()
             if(!permittedRun()){if(!manual && !permitted(c))clear(store);return Result(false,null)}
-            if(complete && active())prefs(c).edit().remove("provider-retry-at").putLong("checked",System.currentTimeMillis()).putLong("retry-at",retry?.let{System.currentTimeMillis()+it}?:0).putLong("faces",AutoPeople.revision(c)).putString("model",PORTRAIT_MODEL).apply()
+            if(complete && active())prefs(c).edit().remove("provider-failures").remove("provider-retry-at").putLong("checked",System.currentTimeMillis()).putLong("retry-at",retry?.let{System.currentTimeMillis()+it}?:0).putLong("faces",AutoPeople.revision(c)).putString("model",PORTRAIT_MODEL).apply()
             return Result(!complete || !active(),retry)
         }finally{detector?.close();encoder?.close()}
     }

@@ -8,9 +8,10 @@ import android.os.*
 import android.provider.MediaStore
 import java.util.concurrent.Executors
 
-/** Small persisted jobs, with a content trigger and periodic discovery fallback. No foreground notification. */
+/** Bounded work slices. Idle recognition sleeps until a content event or a one-shot retry. */
 object AutoPeople {
     const val BATCH=71;const val DISCOVER=72;const val WATCH=73;const val RESUME=74
+    private var recheckRequested=false
     private var retained:List<PhotoRecord>?=null;private var retainedAccess="";private var retainedComplete=false
     fun retainIfChanged(c:Context,store:FaceStore,photos:List<PhotoRecord>,complete:Boolean){
         if(retained!=photos || retainedAccess!=PeopleData.access(c) || retainedComplete!=complete){store.retain(photos,complete);retained=photos;retainedAccess=PeopleData.access(c);retainedComplete=complete}
@@ -63,16 +64,32 @@ object AutoPeople {
         val c=context.applicationContext;if(!enabled(c)){val scheduler=c.getSystemService(JobScheduler::class.java);listOf(BATCH,DISCOVER,WATCH).forEach(scheduler::cancel);scheduleResume(c);return};if(!allowed(c))return
         c.getSystemService(JobScheduler::class.java).cancel(RESUME)
         runCatching{
-            val scheduler=c.getSystemService(JobScheduler::class.java);val service=ComponentName(c,AutoPeopleJob::class.java)
-            if(scheduler.getPendingJob(DISCOVER)==null || scheduler.getPendingJob(DISCOVER)?.isRequireDeviceIdle==true || scheduler.getPendingJob(DISCOVER)?.isRequireBatteryNotLow==true)scheduler.schedule(JobInfo.Builder(DISCOVER,service).setPeriodic(2*60*60_000L).setRequiresStorageNotLow(true).setPersisted(true).build())
+            val scheduler=c.getSystemService(JobScheduler::class.java)
+            scheduler.cancel(DISCOVER) // Remove periodic polling left by older releases.
+            prefs(c).edit().remove("run-failures").apply()
             val watching=scheduler.getPendingJob(WATCH)
             if(watching==null || watching.isRequireBatteryNotLow || (ContactRecognition.available(c) && watching.triggerContentUris.orEmpty().none{it.uri==android.provider.ContactsContract.Contacts.CONTENT_URI}))watch(c)
             request(c,delay)
         }
     }
+    @Synchronized internal fun failureDelay(c:Context,failed:Boolean):Long? {
+        val p=prefs(c)
+        if(!failed){p.edit().remove("run-failures").apply();return null}
+        val count=p.getInt("run-failures",0)+1;p.edit().putInt("run-failures",count).apply()
+        return when(count){1->60_000L;2->300_000L;else->null}
+    }
+    /** Replace stale startup/continuation jobs with exactly the remaining work, or nothing. */
+    @Synchronized fun settle(c:Context,delay:Long?){
+        val scheduler=c.getSystemService(JobScheduler::class.java)
+        scheduler.cancel(DISCOVER);scheduler.cancel(BATCH)
+        val next=if(recheckRequested)minOf(delay?:1000L,1000L)else delay
+        recheckRequested=false
+        if(next!=null)request(c,next,replaceFinished=true)
+    }
     @Synchronized fun watch(c:Context){if(!allowed(c) || !enabled(c))return;runCatching{val job=JobInfo.Builder(WATCH,ComponentName(c,AutoPeopleJob::class.java)).addTriggerContentUri(JobInfo.TriggerContentUri(MediaStore.Images.Media.EXTERNAL_CONTENT_URI,JobInfo.TriggerContentUri.FLAG_NOTIFY_FOR_DESCENDANTS));if(ContactRecognition.available(c))job.addTriggerContentUri(JobInfo.TriggerContentUri(android.provider.ContactsContract.Contacts.CONTENT_URI,JobInfo.TriggerContentUri.FLAG_NOTIFY_FOR_DESCENDANTS));c.getSystemService(JobScheduler::class.java).schedule(job.setTriggerContentUpdateDelay(5_000).setTriggerContentMaxDelay(30_000).setRequiresStorageNotLow(true).build())}}
     @Synchronized fun request(c:Context,delay:Long=60_000,replaceFinished:Boolean=false){
-        if(!allowed(c) || !enabled(c) || FaceWork.automatic)return
+        if(!allowed(c) || !enabled(c))return
+        if(FaceWork.automatic || FaceJobs.state.busy){recheckRequested=true;return}
         runCatching{val s=c.getSystemService(JobScheduler::class.java);if(replaceFinished || s.getPendingJob(BATCH)==null || s.getPendingJob(BATCH)?.isRequireBatteryNotLow==true)s.schedule(JobInfo.Builder(BATCH,ComponentName(c,AutoPeopleJob::class.java)).setMinimumLatency(delay).setRequiresStorageNotLow(true).setBackoffCriteria(5*60_000L,JobInfo.BACKOFF_POLICY_EXPONENTIAL).setPersisted(true).build())}
     }
 }
@@ -95,6 +112,7 @@ open class AutoPeopleJob:JobService() {
     override fun onStartJob(params:JobParameters):Boolean {
         if(params.jobId==AutoPeople.RESUME){getSystemService(JobScheduler::class.java).cancel(AutoPeople.RESUME);AutoPeople.ensure(this,0);return false}
         if(params.jobId==AutoPeople.WATCH){
+            AutoPeople.failureDelay(this,false)
             val authorities=params.triggeredContentAuthorities.orEmpty()
             if(authorities.isEmpty() || MediaStore.AUTHORITY in authorities)GalleryData.invalidate()
             if(authorities.isEmpty() || android.provider.ContactsContract.AUTHORITY in authorities)ContactRecognition.invalidate(this)
@@ -153,15 +171,15 @@ open class AutoPeopleJob:JobService() {
                 }
             }
             main.post{
-                val message=when{outcome.isFailure->"Processing paused; saved progress will retry";more->"Recognition will continue";retryDelay!=null->"Waiting to retry unavailable photos";issues>0->"Checked with $issues photos needing attention";else->"People are up to date"}
+                val failureDelay=AutoPeople.failureDelay(this,outcome.isFailure)
+                val message=when{outcome.isFailure && failureDelay==null->"Recognition stopped; retry from Recognition tools";outcome.isFailure->"Processing paused; saved progress will retry";more->"Recognition will continue";retryDelay!=null->"Waiting to retry unavailable photos";issues>0->"Checked with $issues photos needing attention";else->"People are up to date"}
                 if(FaceJobs.state.background)FaceJobs.publish(FaceJobs.State(message=message))
                 FaceWork.end();if(current===run)current=null;PeopleData.changed()
                 if(AutoPeople.pauseUntil(this)>System.currentTimeMillis())FaceNotifications.paused(this)
-                else if(more || retryDelay!=null || outcome.isFailure)FaceNotifications.waiting(this,message)
-                else FaceNotifications.finished(this,issues)
+                else FaceNotifications.idle(this)
                 if(!run.stopped)jobFinished(params,false)
                 if(params.jobId==AutoPeople.WATCH)AutoPeople.watch(this)
-                if(more || retryDelay!=null || outcome.isFailure || run.stopped)AutoPeople.request(this,if(outcome.isFailure)60_000L else if(more)1000L else retryDelay?:60_000L,params.jobId==AutoPeople.BATCH)
+                AutoPeople.settle(this,when{outcome.isFailure->failureDelay;more->1000L;run.stopped->retryDelay?:60_000L;else->retryDelay})
             }
         };return true
     }

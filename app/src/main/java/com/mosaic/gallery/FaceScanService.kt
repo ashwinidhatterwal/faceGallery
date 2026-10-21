@@ -70,7 +70,7 @@ open class FaceScanService:Service(){
         val result=GalleryData.load(this,signal,!automaticSession);completeAccess=MediaAccess.fullPhotos(this) && result.unreadableVolumes==0;return result.photos.filterNot{it.isVideo}
     }
     private fun process(){
-        var faces:FaceStore.Summary?=null;var signatures:FaceStore.Signatures?=null;var issues=0;var deferred=false
+        var faces:FaceStore.Summary?=null;var signatures:FaceStore.Signatures?=null;var issues=0;var deferred=false;var nextDelay:Long?=null
         val photoRate=RecognitionProgress();val groupRate=RecognitionProgress();var lastUpdate=0L;var lastStage=""
         val outcome=runCatching{
             val photos=accessiblePhotos(query);query.throwIfCanceled()
@@ -153,15 +153,16 @@ open class FaceScanService:Service(){
                         }
                     }
                     if(keepGoing())while(keepGoing() && !regroup(10_000)){}
-                    if(keepGoing()){val contact=ContactRecognition.runSafe(this,store,::keepGoing,query,limit=2);deferred=contact.more || contact.retryDelay!=null}
+                    if(keepGoing()){val contact=ContactRecognition.runSafe(this,store,::keepGoing,query,limit=2);deferred=contact.more || contact.retryDelay!=null;nextDelay=if(contact.more)1000L else contact.retryDelay}
                 }
                 faces=FaceWork.read{store.summary()};signatures=FaceWork.read{store.signatureSummary()}
-                val counts=FaceWork.read{store.workCounts(photos)};issues=counts.failed;deferred=deferred || store.nextRetryDelay(photos)!=null || FaceWork.read{store.pending(photos,false).isNotEmpty() || store.pendingSignatures(photos,false).isNotEmpty()}
+                val counts=FaceWork.read{store.workCounts(photos)};issues=counts.failed;nextDelay=listOfNotNull(nextDelay,store.nextRetryDelay(photos)).minOrNull();if(FaceWork.read{store.pending(photos,false).isNotEmpty() || store.pendingSignatures(photos,false).isNotEmpty() || SignatureRefinement.candidates(store,photos,1).isNotEmpty() || (RecognitionState.needed(store.readableDatabase) && store.signatureSummary().ready>0)})nextDelay=1000L;deferred=deferred || nextDelay!=null
             }
         }
-        PeopleData.changed();AutoPeople.ensure(this,1000)
+        PeopleData.changed()
         val message=if(!continuing)pauseReason else outcome.fold({if(deferred)"Waiting to retry unfinished photos."else if(issues>0)"Checked with $issues photos needing attention."else"Recognition finished."},{"Recognition stopped. Saved progress is kept; tap Resume to retry."})
-        main.post{finishJob(message,faces,signatures,issues)}
+        val continuation=if(outcome.isFailure || !continuing)nextDelay?:60_000L else nextDelay
+        main.post{finishJob(message,faces,signatures);AutoPeople.settle(this,continuation)}
     }
     private fun keepGoing():Boolean {
         if(!continuing || !AutoPeople.enabled(this))return false
@@ -176,13 +177,12 @@ open class FaceScanService:Service(){
     }
     private fun notification(message:String,count:Int,total:Int):Notification =
         FaceNotifications.running(this,RecognitionProgress.Snapshot(message,count,total))
-    private fun finishJob(message:String,faces:FaceStore.Summary?=null,signatures:FaceStore.Signatures?=null,issues:Int=0){
+    private fun finishJob(message:String,faces:FaceStore.Summary?=null,signatures:FaceStore.Signatures?=null){
         continuing=false;main.removeCallbacks(timeout);releaseWake();if(!editingPause && AutoPeople.enabled(this))FaceWork.clearCooldown()
         FaceJobs.publish(FaceJobs.State(message=message,faces=faces,signatures=signatures))
         stopForeground(STOP_FOREGROUND_REMOVE)
         if(AutoPeople.pauseUntil(this)>System.currentTimeMillis())FaceNotifications.paused(this)
-        else if(message=="Recognition finished." || message.startsWith("Checked with"))FaceNotifications.finished(this,issues)
-        else if(AutoPeople.enabled(this))FaceNotifications.waiting(this,message)
+        else FaceNotifications.idle(this)
         stopSelf()
     }
     private fun releaseWake(){wake?.let{if(it.isHeld)it.release()};wake=null}
