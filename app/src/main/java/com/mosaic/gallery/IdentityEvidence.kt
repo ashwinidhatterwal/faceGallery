@@ -26,10 +26,8 @@ object IdentityEvidence {
     }
     fun provisional(groups:List<GroupRules.Capsule>,rows:List<GroupRules.Member>,named:Set<Long>):Set<Long> {
         val confirmed=named+rows.filter{it.manual}.mapNotNull{it.person}
-        return groups.filterNot{group->
-            established(group,emptyList(),confirmed) || (group.prototypes.any{it.member.face.score>=.85f} &&
-                groups.filter{it.id!=group.id}.none{other->group.prototypes.any{p->GroupRules.rank(p.vector,other)?.score?.let{it>=.60f}==true}})
-        }.map{it.id}.toSet()
+        val index=FaceCandidateIndex(groups)
+        return groups.filterNot{group->established(group,emptyList(),confirmed) || (group.prototypes.any{it.member.face.score>=.85f} && !index.hasNeighbor(group,.60f))}.map{it.id}.toSet()
     }
     fun penalty(member:GroupRules.Member)=((.75f-member.face.score).coerceAtLeast(0f)*.10f).coerceAtMost(.03f)
 }

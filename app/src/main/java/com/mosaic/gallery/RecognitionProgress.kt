@@ -55,9 +55,9 @@ internal object FaceNotifications {
             .setContentText(message).setContentIntent(open(c)).setOnlyAlertOnce(true).setShowWhen(false)
             .addAction(Notification.Action.Builder(null,"Resume now",resume(c)).build()).build())
     }
-    fun finished(c:Context){
+    fun finished(c:Context,issues:Int=0){
         if(FaceJobs.state.busy && !FaceJobs.state.background)return
-        channel(c);manager(c).notify(ID,Notification.Builder(c,CHANNEL).setSmallIcon(R.drawable.ic_photo).setContentTitle("People are up to date")
-            .setContentText("Your accessible photos have been checked").setContentIntent(open(c)).setAutoCancel(true).setOnlyAlertOnce(true).build())
+        channel(c);manager(c).notify(ID,Notification.Builder(c,CHANNEL).setSmallIcon(R.drawable.ic_photo).setContentTitle(if(issues>0)"Checked with issues"else"People are up to date")
+            .setContentText(if(issues>0)"$issues photos need attention in Recognition tools"else"Your accessible photos have been checked").setContentIntent(open(c)).setAutoCancel(true).setOnlyAlertOnce(true).build())
     }
 }

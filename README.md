@@ -1,6 +1,6 @@
-Current update: **1.0.0-rc18 / build 58**. See [the recognition menu and portrait review](RECOGNITION-MENU-PORTRAIT-REVIEW.md) for changes, checks and phone acceptance steps.
+Current update: **1.0.0-rc20 / build 60**. See [the recognition audit fixes review](RECOGNITION-AUDIT-FIXES.md) for changes, checks and phone acceptance steps.
 
-# Face Gallery — Play release candidate 1.0.0-rc18 (58)
+# Face Gallery — Play release candidate 1.0.0-rc20 (60)
 
 Start with [publishing/START-HERE.md](publishing/START-HERE.md). This source includes store artwork, listing copy, policy/declaration drafts and release checks. Physical-device acceptance, public support details, privacy hosting and Play review remain owner steps.
 

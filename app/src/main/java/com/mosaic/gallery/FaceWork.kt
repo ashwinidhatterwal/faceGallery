@@ -15,6 +15,7 @@ object FaceWork {
     fun observe(listener:()->Unit){listeners+=listener}
     fun remove(listener:()->Unit){listeners-=listener}
     fun pauseForEdit(){editingUntil=SystemClock.elapsedRealtime()+60_000;stopAutomatic=true}
+    fun clearCooldown(){editingUntil=0L}
     fun begin():Boolean {if(automatic || FaceJobs.state.busy || SystemClock.elapsedRealtime()<editingUntil)return false;automatic=true;stopAutomatic=false;return true}
     fun end(){automatic=false;main.post{listeners.toList().forEach{it()}}}
     private val readers=java.util.concurrent.atomic.AtomicInteger()

@@ -26,12 +26,13 @@ class ContactPhotoSync(private val activity:Activity) {
         root.addView(button,LinearLayout.LayoutParams(-1,GalleryStyle.dp(activity,48)))
         val shown=GalleryStyle.dialog(activity,root);dialog=shown
         shown.setOnDismissListener{cancel.cancel();if(dialog===shown)dialog=null}
+        ContactRecognition.invalidate(activity)
         worker.execute{
             var more=true;var retry:Long?=null;var unavailable=false
             val result=runCatching{
                 while(more && !cancel.isCanceled && !closed){
                     if(FaceJobs.state.busy){unavailable=true;break}
-                    val batch=FaceWork.write{
+                    val batch=run{
                         val deadline=SystemClock.elapsedRealtime()+20_000
                         fun active()=!cancel.isCanceled && !closed && !FaceJobs.state.busy && SystemClock.elapsedRealtime()<deadline
                         if(!active())null else FaceStore(activity.applicationContext).use{ContactRecognition.runSafe(activity.applicationContext,it,::active,cancel,limit=4,manual=true)}

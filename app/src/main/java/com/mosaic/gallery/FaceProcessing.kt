@@ -8,7 +8,8 @@ object FaceProcessing{
             if(!keepGoing())break
             val result=runCatching{detect(photo)}
             if(!canCommit())break
-            result.onSuccess{store.save(photo,it)}.onFailure{store.save(photo,emptyList(),it.javaClass.simpleName)}
+            result.exceptionOrNull()?.let{if(it is DetectorUnavailable)throw it}
+            FaceWork.write{if(canCommit())result.onSuccess{store.save(photo,it)}.onFailure{store.save(photo,emptyList(),it.javaClass.simpleName)}}
             progress(index+1)
         }
     }

@@ -1,0 +1,145 @@
+{
+  "audited_version": "1.0.0-rc18 / 58",
+  "rc19_artifact_available": false,
+  "checks": [
+    {
+      "id": "E01",
+      "kind": "production SQLite query",
+      "finding": "F04",
+      "accessible_photos": 0,
+      "retry_delay_ms": 60000,
+      "outcome": "Hidden URI still schedules retry"
+    },
+    {
+      "id": "E02",
+      "kind": "production SQLite query plus completion-branch model",
+      "finding": "F05",
+      "unresolved_errors": 1,
+      "due_now": false,
+      "notification": "finished",
+      "outcome": "Completion can be announced while retry remains"
+    },
+    {
+      "id": "E03",
+      "kind": "source-backed bounded-work model, not a phone timing test",
+      "finding": "F01",
+      "visits_by_slice": [
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          1,
+          2
+        ],
+        [
+          0,
+          1,
+          2
+        ]
+      ],
+      "outcome": "Unchanged prefix repeats; later audit items remain unvisited"
+    },
+    {
+      "id": "E04",
+      "kind": "source-backed vector-operation count",
+      "finding": "F02",
+      "groups": 256,
+      "comparisons_per_provisional_call": 65280,
+      "two_calls": 130560,
+      "outcome": "Unchanged graph can still require all-pairs comparisons"
+    },
+    {
+      "id": "E05",
+      "kind": "source-backed cache dependency check",
+      "finding": "F07",
+      "old_independent": true,
+      "new_independent": false,
+      "unchanged_key_inputs": {
+        "ids": [
+          1,
+          2
+        ],
+        "photos": [
+          "a",
+          "b"
+        ],
+        "leaves": [
+          1,
+          2
+        ],
+        "reference_keys": [
+          "a:0",
+          "b:0"
+        ],
+        "vectors": "unchanged"
+      },
+      "outcome": "Evidence can change while comparison generation stays unchanged"
+    },
+    {
+      "id": "E06",
+      "kind": "source-backed lifecycle branch check, not Android interaction test",
+      "finding": "F09",
+      "busy_background": true,
+      "resume_reaches_preference_update": false,
+      "outcome": "Resume command exits before clearing paused state"
+    },
+    {
+      "id": "E07",
+      "kind": "source-backed scheduling-budget model, not measured device timing",
+      "finding": "F08",
+      "contact_elapsed_ms": 12000,
+      "detection_deadline_ms": 10000,
+      "outcome": "Contacts can consume all detection allowance for a batch"
+    }
+  ],
+  "checks_completed": 7,
+  "scope_note": "Read-only audit; models/structural checks are not Android end-to-end tests. Existing rc19-described fixes are excluded from additional findings.",
+  "source_sha256": {
+    "AutoPeople.kt": "c7764ac406013eb9aff420d850b312fd54be469f5350c5fbf6da8ec6acddef21",
+    "FaceStore.kt": "60e2e2773aa726511aae3c4a9f427968ce4985acf48b7bcb7b939b6cdd8ea340",
+    "FaceScanService.kt": "d886f05c8da2ed63939efc393f2859471412824b5ef778564bad77be33e86395",
+    "FaceProcessing.kt": "9266f1be6ef39173176bd62fdc205839cf9997be50c46904d3d9c5fe8ce60bea",
+    "FaceEncoder.kt": "712745aa554d5ae7abd1ffaf0f8b69bc6ccdc0aa70ceecadc580a76aae6335ad",
+    "FaceEngine.kt": "e0337cb5343e290092482a84088cfb802b9a381c96bb3b63da2a25d8386d854c",
+    "PeopleStore.kt": "d136f40178c7a6e37256c4b4a3dc75e01bd574dc141d2e02f55abe291afc32c2",
+    "PeopleGrouping.kt": "8e51c4fe283d8c329192b5cab60442e138f38b95a183eef26d80b987dfc68042",
+    "IdentityEvidence.kt": "8fc8c274f40c189c41a77002035696b65666e11ac13776f97cbf3b5547d92158",
+    "IdentityComparisonCache.kt": "ed0441069049f2b2d149731731014f9ff442f2783317b9be8c7268f94e9ab68b",
+    "SignatureRefinement.kt": "2125e6165a7486121e37ad0d2d293a30211af5ff63899ed69559ebd6eb22f5b8",
+    "ContactRecognition.kt": "04e234638f51be32636502ae79317b88891f3c8b1ecf39b1a848b21d61ee730b",
+    "PeopleCorrections.kt": "e19e7604e5928ac417633940859dacace595bbeeef943c6a0e96bf8f3422ad47",
+    "PeopleCalibration.kt": "d77bc2db26c2b50f5a91a6c046a523093bd985ce6a4b026ceee878918d21e190",
+    "PeopleActivity.kt": "a943be0e9ee0c63329f6c77c994315d10e88273084480f5867a8756d36663e22",
+    "PeopleData.kt": "7ac52b8952a63da4c29e4c9b9c1b48efcc30adb249282296d2fbc9989837a06f",
+    "PeopleRevision.kt": "baa68b4f4bda01c268afc16267eaa919d43e59a5a36287a1cd186966f44aa4ef",
+    "PeopleEditGate.kt": "d9758995c499fd392097f7f4ea0116b4835884e1568d352da41687640664732d",
+    "IdentitySuggestions.kt": "8e7a0c53b88203ffa5702b9c108e28ea6292c1be8f5a0ea3ae87de69e5845802",
+    "RecognitionProgress.kt": "3b3d37c6df443bc3350acd1159777b985c94bc1946af9813a136448535d4a55e",
+    "RecognitionConsent.kt": "d85bb7f8c53239296b2211cd41f1f5f5a953dee80f4b193928f7bd06309f9a65",
+    "FaceAlignment.kt": "896833acc8f121f80d4a8289ec3a238bfdf8ac836ef0752996346e844cab53a6",
+    "FaceQuality.kt": "22c4a519714565a4843d79de912b134fc25527af83981364b03b47051c69eef2",
+    "FaceVectors.kt": "260679abfa3cb922f7cf8883d0263dd4c8b59e35e888e4fd98071977b3a481d5",
+    "PhotoImages.kt": "7b0bc2c4376f04a57e0f49a84dc8aa7a2ca3eebb48abf99719b01d5ab390e62c",
+    "PeopleLaunchCache.kt": "5c904fe1e28e33bb2199a5d7aba8d16574654dfa011ca2ff7583c46267ec13c0",
+    "FaceThumbnails.kt": "e21ce431960c3237f47af8224e01965ae18c05e1e852066bc86ba62f53a13d04",
+    "FacePreviewCache.kt": "d0ac134a4ea9eb3adcda3083718a14c4f380f73ca3da9e1a21361116776ae6e4",
+    "PhotoPeopleSheet.kt": "89b0879b6d9b0c0f13232a91c81612e431046157bd5bfa78bb52734df5ae5177",
+    "ContactPhotoSync.kt": "48be2ece82d06ab8b1683296d26ca0242d34370337ed1ec1272fc930f597f106",
+    "ContactDiagnostics.kt": "57c43ce8c324a926e020646a96dc33b93ba03a81d68c12a8841f7df29ef56f09",
+    "ContactDiagnosticsActivity.kt": "294cf7b48c273834dd1a18745f9eb0fafdef6d731597cb3c697f47dd280586a7",
+    "ContactPhotoOffer.kt": "6e7581770300a0d38f4b3507839819fbabb08065dde4715c980487a0ebed7103",
+    "PeopleNames.kt": "7193f2e1eca3525838a1a41a93f859211cc88dbb158361383933f178babe037c",
+    "PeopleSearch.kt": "d26d5a283f26ba13f41950c3155dd480475a05d5d62d03a1609ff6671fa5b6bf",
+    "FaceScanActivity.kt": "ff49eddbf49514fb1aa8debfe0a2f7f5fb13123392e8163ed048cb25abc20e7e",
+    "FaceReviewActivity.kt": "e487c20e5a23d8ff886da6ca8f26fb17dea5a5473d0cc6d2338daa08ecad5b27",
+    "SimilarFacesActivity.kt": "77bc8c3d12d3651d7f2b6c857babdbcdd040ae21bb9ae0c7f2605442e9c1b1a9"
+  }
+}

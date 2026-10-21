@@ -50,6 +50,7 @@ class PeopleStore(private val faces:FaceStore) {
     fun pending()=members().filter{it.ready && it.face.authority!="Shadow" && it.status !in setOf("known","excluded")}.sortedWith(compareBy<GroupRules.Member>{it.face.authority!="Anchor"}.thenByDescending{it.face.score}.thenBy{it.key.uri}.thenBy{it.key.ordinal})
     fun <T> snapshot(read:()->T):T=faces.snapshot(read)
     fun comparisonCheckpoint()=faces.comparisonCheckpoint()
+    internal fun evidenceRevision()=faces.evidenceRevision()
     fun vector(key:GroupRules.Key)=faces.signature(key.uri,key.ordinal)
     private fun transaction(action:()->Unit){db.beginTransaction();try{action();db.setTransactionSuccessful()}finally{db.endTransaction()}}
     fun record(member:GroupRules.Member,decision:GroupRules.Decision):Long? {
@@ -244,26 +245,33 @@ class PeopleStore(private val faces:FaceStore) {
     }
     /** Audit unsupported automatic folder edges; user joins and shared contact identity win. */
     fun repairJoins(keepGoing:()->Boolean):Int {
-        val rows=members();var repaired=0
-        for(edge in relations().filter{it.active && it.source=="auto" && it.type=="merge"}){
-            if(!keepGoing())break
+        val checkpoint=RecognitionState.repair(db,"joins");if(checkpoint.complete)return 0
+        val rows=members();var repaired=0;var cursor=checkpoint.cursor;var complete=true
+        for(edge in relations().filter{it.id>checkpoint.cursor && it.active && it.source=="auto" && it.type=="merge"}){
+            if(!keepGoing()){complete=false;break}
+            cursor=edge.id
             val roots=components(rows,skipRelation=edge.id)
             if(roots[edge.a]==roots[edge.b])continue // Another valid path still supports this join.
             val groups=capsules(rows,roots);val a=groups.firstOrNull{edge.a in it.leaves}?:continue;val b=groups.firstOrNull{edge.b in it.leaves}?:continue
             if(contactKeys(a.leaves).intersect(contactKeys(b.leaves)).isNotEmpty())continue
             if(a.prototypes.size<2 || b.prototypes.size<2 || GroupRules.agreement(a,b)>=.50f)continue
             val best=a.prototypes.maxOfOrNull{GroupRules.rank(it.vector,b)?.score?:-1f}?:-1f
-            if(best>=.60f || !keepGoing())continue
+            if(best>=.60f)continue
+            if(!keepGoing()){cursor=edge.id-1;complete=false;break}
             db.execSQL("UPDATE relations SET active=0,reason=reason || ' · unsupported automatic folder join' WHERE id=?",arrayOf(edge.id));repaired++
-        };return repaired
+        };RecognitionState.checkpoint(db,"joins",cursor,complete);return repaired
     }
     /** Release only unsupported automatic leaf attachments with a decisive alternative.
      * Explicit assignments, names, contact links and user joins are immutable here. */
     fun repairAssignments(keepGoing:()->Boolean):Int {
+        val checkpoint=RecognitionState.repair(db,"assignments");if(checkpoint.complete)return 0
+        val ids=buildMap<GroupRules.Key,Long>{db.rawQuery("SELECT rowid,uri,ordinal FROM membership",null).use{c->while(c.moveToNext())put(GroupRules.Key(c.getString(1),c.getInt(2)),c.getLong(0))}}
         val rows=members();val groups=capsules(rows);val edges=relations();val named=names().keys+contactKeysById()
+        var cursor=checkpoint.cursor;var complete=true
         val byPerson=rows.filter{it.person!=null}.groupBy{it.person!!};val policy=policy();var repaired=0
-        for(row in rows){
-            if(!keepGoing())break
+        for(row in rows.filter{(ids[it.key]?:0)>checkpoint.cursor}.sortedBy{ids[it.key]}){
+            if(!keepGoing()){complete=false;break}
+            cursor=ids[row.key]?:cursor
             val person=row.person?:continue
             val shared=row.face.authority=="Support"
             if(row.manual || row.status!="known" || !row.ready || (!shared && (person in named || byPerson[person]?.size!=1)))continue
@@ -277,12 +285,12 @@ class PeopleStore(private val faces:FaceStore) {
             val candidates=groups.filter{it.id!=own.id && row.key.uri !in it.photos && !blocked(own.leaves,it.leaves) && !contactConflict(own.leaves,it.leaves)}.mapNotNull{GroupRules.rank(vector,it)}.sortedByDescending{it.score}
             val best=candidates.firstOrNull()?:continue
             if(best.score<=policy.anchor || best.score-(candidates.getOrNull(1)?.score?:-1f)<.06f)continue
-            if(!keepGoing())break
+            if(!keepGoing()){cursor=(ids[row.key]?:1)-1;complete=false;break}
             transaction{
                 incident.forEach{db.execSQL("UPDATE relations SET active=0,reason=reason || ' · inconsistent automatic attachment' WHERE id=?",arrayOf(it.id))}
                 db.execSQL("UPDATE membership SET person=NULL,suggested=?,status='tentative',score=?,reason='Automatic attachment needs reassessment' WHERE uri=? AND ordinal=? AND manual=0",arrayOf<Any>(best.capsule.id,best.score,row.key.uri,row.key.ordinal))
             };repaired++
-        };return repaired
+        };RecognitionState.checkpoint(db,"assignments",cursor,complete);return repaired
     }
     private fun contactKeysById()=buildSet<Long>{db.rawQuery("SELECT id FROM people WHERE contact_lookup IS NOT NULL",null).use{while(it.moveToNext())add(it.getLong(0))}}
     fun reset(){faces.clearPeopleUi();db.delete("contact_hint_rejections",null,null);db.delete("identity_assertions",null,null);transaction{db.delete("contact_signatures",null,null);db.delete("contact_matches",null,null);db.delete("contact_face_matches",null,null);db.delete("face_edits",null,null);db.delete("correction_samples",null,null);db.delete("membership",null,null);db.delete("relations",null,null);db.delete("people",null,null)}}

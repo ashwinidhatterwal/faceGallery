@@ -39,8 +39,9 @@ object SignatureProcessing {
             if(face.authority=="Shadow" || !store.needsSignature(uri,ordinal) || (!retryErrors && !store.encodingDue(uri,ordinal)))return@forEachIndexed
             val result=runCatching{encode(face)}
             if(!canCommit())return
-            result.onSuccess{vector->store.saveSignature(uri,ordinal,vector,if(vector==null)"skipped"else"done",if(vector==null)"Face could not be aligned reliably"else null)}
-                .onFailure{store.saveSignature(uri,ordinal,null,"error",it.javaClass.simpleName)}
+            result.exceptionOrNull()?.let{if(it is DetectorUnavailable)throw it}
+            FaceWork.write{if(canCommit())result.onSuccess{vector->store.saveSignature(uri,ordinal,vector,if(vector==null)"skipped"else"done",if(vector==null)"Face could not be aligned reliably"else null)}
+                .onFailure{store.saveSignature(uri,ordinal,null,"error",it.javaClass.simpleName)}}
         }
     }
 }
@@ -55,10 +56,10 @@ class SignatureEngine(private val context:Context,threads:Int=2):java.io.Closeab
             if(faces.withIndex().any{(ordinal,face)->face.authority!="Shadow" && face.landmarks.size!=10 && store.needsSignature(photo.uri.toString(),ordinal)}){
                 val engine=detector?:FaceEngine(context).also{detector=it}
                 val fresh=engine.detectBitmap(bitmap);if(!canCommit())return
-                faces=FaceAlignment.recover(faces,fresh);store.updateLandmarks(photo.uri.toString(),faces)
+                faces=FaceAlignment.recover(faces,fresh);FaceWork.write{if(canCommit())store.updateLandmarks(photo.uri.toString(),faces)}
             }
             SignatureProcessing.run(store,photo,faces,keepGoing,canCommit,retryErrors){face->FaceAlignment.crop(bitmap,face)?.let{aligned->try{encoder.encode(aligned)}finally{aligned.recycle()}}}
-            store.restoreAssertions(photo.uri.toString())
+            FaceWork.write{if(canCommit())store.restoreAssertions(photo.uri.toString())}
         }finally{bitmap.recycle()}
     }
     fun refine(store:FaceStore,photo:PhotoRecord,keys:Set<GroupRules.Key>,keepGoing:()->Boolean,canCommit:()->Boolean=keepGoing):Int {

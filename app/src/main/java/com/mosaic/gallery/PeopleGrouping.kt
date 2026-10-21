@@ -82,10 +82,12 @@ object GroupRules {
     /** Mutual best groups with room above the runner-up; no single-link chain inference. */
     fun agreedPair(groups:List<Capsule>,allowed:(Capsule,Capsule)->Boolean,keepGoing:()->Boolean={true},policy:PeopleCalibration.Policy=PeopleCalibration.Policy(),cache:IdentityComparisonCache?=null):Pair<Capsule,Capsule>? {
         val scan=cache?:IdentityComparisonCache(groups.map{it.id},policy.agreement-policy.groupMargin)
-        while(scan.i<groups.size){
-            if(scan.j>=groups.size){scan.i++;scan.j=scan.i+1;continue}
-            if(!keepGoing()){scan.saveScan();return null}
-            val a=groups[scan.i];val b=groups[scan.j]
+        val ordered=groups.sortedBy{it.id};val candidates=groups.associateBy{it.id};scan.prepare(ordered)
+        while(scan.i<ordered.size){
+            val a=ordered[scan.i];val row=scan.neighbors(a,keepGoing)?:return null
+            while(scan.j<row.size){
+                if(!keepGoing()){scan.saveScan();return null}
+                val b=candidates.getValue(row[scan.j])
             if(a.photos.intersect(b.photos).isEmpty() && allowed(a,b)){
                 fun compute()=IdentityComparisonCache.Evidence(a.prototypes.maxOfOrNull{rank(it.vector,b)?.score?:-1f}?:-1f,agreement(a,b),agreement(a,b,3))
                 val evidence=scan.get(a.id,b.id,::compute);val best=evidence.best;val repeated=evidence.agreement
@@ -93,7 +95,9 @@ object GroupRules {
                 val score=if(direct || repeated<0f)best else repeated
                 if(score>=policy.agreement-policy.groupMargin)scan.offer(IdentityComparisonCache.Match(a.id,b.id,score,direct || repeated>=policy.agreement || evidence.corroborated>=maxOf(.68f,policy.agreement-.04f),direct))
             }
-            scan.j++
+                scan.j++
+            }
+            scan.i++;scan.j=0
         }
         val byId=groups.associateBy{it.id}
         fun decisive(id:Long,match:IdentityComparisonCache.Match):Boolean {
@@ -123,9 +127,9 @@ object PeopleGrouping {
     private var comparisonKey:Long?=null;private var comparisons:IdentityComparisonCache?=null
     /** Reuse unfinished pair evidence across cool-down batches, invalidating when references change. */
     @Synchronized private fun resumable(store:PeopleStore,groups:List<GroupRules.Capsule>,policy:PeopleCalibration.Policy):IdentityComparisonCache {
-        var key=(policy.hashCode().toLong()*31+"auto-merge-v2".hashCode())*31+store.relations().hashCode();key=key*31+store.names().hashCode();key=key*31+store.contacts().entries.sortedBy{it.key}.map{it.key to it.value.lookup}.hashCode()
+        var key=(policy.hashCode().toLong()*31+"auto-merge-v3-indexed".hashCode())*31+store.relations().hashCode();key=key*31+store.names().hashCode();key=key*31+store.contacts().entries.sortedBy{it.key}.map{it.key to it.value.lookup}.hashCode()
         key=key*31+store.contactAutomationBlocked().sorted().hashCode();key=key*31+store.contactHintRejections().hashCode()
-        for(group in groups.sortedBy{it.id}){key=key*31+group.id;key=key*31+group.photos.sorted().hashCode();key=key*31+group.leaves.sorted().hashCode();for(ref in group.prototypes){key=key*31+ref.member.key.hashCode();key=key*31+ref.vector.contentHashCode()}}
+        for(group in groups.sortedBy{it.id}){key=key*31+group.id;key=key*31+group.photos.sorted().hashCode();key=key*31+group.leaves.sorted().hashCode();key=key*31+IdentityComparisonCache.fingerprint(group)}
         if(key!=comparisonKey || comparisons==null){comparisonKey=key;comparisons=IdentityComparisonCache(groups.map{it.id},policy.agreement-policy.groupMargin,store.comparisonCheckpoint(),key)}
         return comparisons!!
     }
@@ -134,7 +138,9 @@ object PeopleGrouping {
         if(!keepGoing())return
         phase("Checking saved matches…")
         var changed=store.repairJoins(keepGoing)>0
+        if(!keepGoing())return
         changed=store.repairAssignments(keepGoing)>0 || changed
+        if(!keepGoing())return
         val groups=store.capsules().sortedBy{it.id}.toMutableList()
         val policy=store.policy()
         val rejected=store.contactHintRejections()

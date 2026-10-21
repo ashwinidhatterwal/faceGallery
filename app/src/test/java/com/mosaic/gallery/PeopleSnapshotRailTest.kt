@@ -94,7 +94,7 @@ class PeopleSnapshotRailTest {
             val triggers=buildList{db.rawQuery("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'people_ui_%'",null).use{while(it.moveToNext())add(it.getString(0))}}
             triggers.forEach{db.execSQL("DROP TRIGGER $it")};db.execSQL("DROP TABLE people_ui_revision");db.version=11
         }
-        FaceStore(app).use{f->assertEquals(12,f.readableDatabase.version);assertEquals("Keep me",PeopleStore(f).label(id));assertEquals(1,PeopleStore(f).members().size);assertEquals("0",PeopleRevision.value(f.readableDatabase))}
+        FaceStore(app).use{f->assertEquals(13,f.readableDatabase.version);assertEquals("Keep me",PeopleStore(f).label(id));assertEquals(1,PeopleStore(f).members().size);assertEquals("0",PeopleRevision.value(f.readableDatabase))}
     }
     @Test fun duplicateUriKeepsFirstPhotoSearchMetadata(){
         val duplicate=photo.copy(displayName="holiday.jpg")

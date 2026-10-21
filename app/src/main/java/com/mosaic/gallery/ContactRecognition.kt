@@ -49,9 +49,9 @@ object ContactRecognition {
         if(value)AutoPeople.ensure(c,1_000)
         else {val app=c.applicationContext;Thread({FaceWork.write{if(!enabled(app))FaceStore(app).use(::clear)}},"contact-cache-clear").start()}
     }
-    fun invalidate(c:Context){prefs(c).edit().remove("checked").remove("provider-retry-at").apply()}
+    fun invalidate(c:Context){directory=null;prefs(c).edit().remove("checked").remove("provider-retry-at").apply()}
     fun needsWork(c:Context):Boolean = available(c) && System.currentTimeMillis()>=prefs(c).getLong("provider-retry-at",0) && (prefs(c).getLong("provider-retry-at",0)>0 || prefs(c).getString("model","")!=PORTRAIT_MODEL || System.currentTimeMillis()-prefs(c).getLong("checked",0)>=CHECK_INTERVAL || prefs(c).getLong("faces",-1)!=AutoPeople.revision(c) || prefs(c).getLong("retry-at",0).let{it>0 && System.currentTimeMillis()>=it})
-    fun clear(store:FaceStore){val removed=store.writableDatabase.delete("contact_signatures",null,null);store.writableDatabase.delete("contact_matches",null,null);store.writableDatabase.delete("contact_face_matches",null,null);if(removed>0)PeopleData.changed()}
+    fun clear(store:FaceStore)=FaceWork.write{store.writableDatabase.delete("recognition_contacts",null,null);val removed=store.writableDatabase.delete("contact_signatures",null,null);store.writableDatabase.delete("contact_matches",null,null);store.writableDatabase.delete("contact_face_matches",null,null);if(removed>0)PeopleData.changed()}
     /** Aggregate local diagnostics only: no portrait pixels, contact identities or vectors. */
     fun diagnostics(c:Context,store:FaceStore,names:Boolean=false):org.json.JSONObject {
         val counts=org.json.JSONObject();val reasons=org.json.JSONObject()
@@ -70,6 +70,12 @@ object ContactRecognition {
             .put("provider_retry_at_ms",prefs(c).getLong("provider-retry-at",0)).put("portraits",counts).put("rejection_reasons",reasons)
     }
     /** One local query, no phone numbers, remote directories, or contact-count limit. */
+    @Volatile private var directory:List<Photo>?=null;private var directoryKey="";private var directoryAt=0L
+    @Synchronized private fun directory(c:Context,signal:CancellationSignal,manual:Boolean):List<Photo>{
+        val key="${c.filesDir}:$manual:${allowed(c)}";val now=android.os.SystemClock.elapsedRealtime()
+        if(directory!=null && directoryKey==key && now-directoryAt<30_000)return directory!!
+        return photos(c,signal,manual).also{directory=it;directoryKey=key;directoryAt=now}
+    }
     fun photos(c:Context,signal:CancellationSignal,manual:Boolean=false,includeMissing:Boolean=false):List<Photo> {
         if(!(if(manual)permitted(c)else available(c)))return emptyList()
         val columns=arrayOf(ContactsContract.Contacts._ID,ContactsContract.Contacts.LOOKUP_KEY,ContactsContract.Contacts.DISPLAY_NAME_PRIMARY,ContactsContract.Contacts.PHOTO_ID,ContactsContract.Contacts.PHOTO_URI,ContactsContract.Contacts.CONTACT_LAST_UPDATED_TIMESTAMP)
@@ -98,7 +104,7 @@ object ContactRecognition {
     }
     fun due(old:Cached?,photo:Photo,now:Long)=old==null || old.stamp!=photo.stamp || (old.status=="error" && old.attempts<3 && now>=old.next)
     internal fun legacyRejection(old:Cached?)=old?.status=="skipped" && old.detail.isBlank() && old.reason in setOf("portrait_quality_or_landmarks","single_face_not_detected","portrait_alignment")
-    private fun save(store:FaceStore,photo:Photo,value:Cached){
+    private fun save(store:FaceStore,photo:Photo,value:Cached)=FaceWork.write{
         store.writableDatabase.insertWithOnConflict("contact_signatures",null,ContentValues().apply{
             put("lookup",photo.contact.lookup);put("name",photo.contact.name);put("stamp",value.stamp);put("digest",value.digest);put("model",PORTRAIT_MODEL);put("status",value.status);put("vector",value.vector?.let(FaceVectors::pack));put("attempts",value.attempts);put("next_time",value.next);put("reason",value.reason);put("detail",value.detail)
         },SQLiteDatabase.CONFLICT_REPLACE)
@@ -169,16 +175,20 @@ object ContactRecognition {
     fun scan(store:FaceStore,photos:List<Photo>,keepGoing:()->Boolean,now:Long=System.currentTimeMillis(),limit:Int=4,
         read:(Photo)->ByteArray,infer:(ByteArray)->FloatArray?,detail:()->String={""},repairLegacy:Boolean=false,force:Boolean=false):Boolean {
         var processed=0
-        for(photo in photos){
-            if(!keepGoing())return false
+        val token=hash((PORTRAIT_MODEL+photos.joinToString{it.contact.lookup+":"+it.stamp+":"+it.contact.name}).toByteArray())
+        val start=if(force)0 else store.readableDatabase.rawQuery("SELECT cursor FROM recognition_contacts WHERE token=?",arrayOf(token)).use{if(it.moveToFirst())it.getInt(0).coerceIn(0,photos.size)else 0}
+        fun checkpoint(position:Int){if(!force)FaceWork.write{store.writableDatabase.execSQL("DELETE FROM recognition_contacts WHERE token!=?",arrayOf(token));store.writableDatabase.execSQL("INSERT OR REPLACE INTO recognition_contacts VALUES(?,?)",arrayOf<Any>(token,position))}}
+        for(index in start until photos.size){
+            val photo=photos[index]
+            if(!keepGoing()){checkpoint(index);return false}
             val old=cached(store,photo.contact.lookup)
             val repair=repairLegacy && legacyRejection(old)
             if(!force && !repair && !due(old,photo,now)){
-                store.writableDatabase.execSQL("UPDATE contact_signatures SET name=? WHERE lookup=? AND name!=?",arrayOf(photo.contact.name,photo.contact.lookup,photo.contact.name))
+                FaceWork.write{store.writableDatabase.execSQL("UPDATE contact_signatures SET name=? WHERE lookup=? AND name!=?",arrayOf(photo.contact.name,photo.contact.lookup,photo.contact.name))}
                 if(android.database.DatabaseUtils.longForQuery(store.readableDatabase,"SELECT changes()",null)>0)PeopleData.changed()
                 continue
             }
-            if(processed++>=limit)return false
+            if(processed++>=limit){checkpoint(index);return false}
             var digest=""
             val result=runCatching{
                 val data=read(photo);digest=hash(data)
@@ -186,7 +196,10 @@ object ContactRecognition {
                 if(!force && !repair && old!=null && old.digest==digest && old.status!="error")old.copy(stamp=photo.stamp)
                 else {val vector=infer(data);Cached(photo.stamp,digest,vector,if(vector==null)"skipped"else"done",0,0,if(vector==null)"unusable_portrait"else "",detail())}
             }
-            if(!keepGoing())return false
+            if(!keepGoing()){checkpoint(index);return false}
+            result.exceptionOrNull()?.let{if(it is DetectorUnavailable)throw it}
+            var committed=false
+            FaceWork.write{if(keepGoing()){
             result.onSuccess{save(store,photo,it)}.onFailure{
                 if(it is PortraitRejected)save(store,photo,Cached(photo.stamp,digest,null,"skipped",0,0,it.code,it.detail))
                 else {
@@ -196,8 +209,11 @@ object ContactRecognition {
                     save(store,photo,Cached(photo.stamp,"",null,"error",attempts,now+if(attempts==1)60_000L else 5*60_000L,it.javaClass.simpleName))
                 }
             }
+            committed=true
+            }}
+            if(!committed){checkpoint(index);return false}
         }
-        return true
+        checkpoint(0);return true
     }
     /** One explicitly selected portrait, under the shared writer lock. No naming against a partial address book. */
     fun recheck(c:Context,store:FaceStore,tag:String,keepGoing:()->Boolean,signal:CancellationSignal):Boolean {
@@ -273,7 +289,7 @@ object ContactRecognition {
     /** A temporarily unavailable address book must not prevent gallery recognition. */
     fun runSafe(c:Context,store:FaceStore,keepGoing:()->Boolean,signal:CancellationSignal=CancellationSignal(),limit:Int=12,manual:Boolean=false):Result = try{run(c,store,keepGoing,signal,limit,manual)}catch(e:Exception){
         signal.throwIfCanceled()
-        if(!keepGoing())Result(true,null)else{val delay=15*60_000L;if(!manual)prefs(c).edit().putLong("provider-retry-at",System.currentTimeMillis()+delay).apply();Result(false,delay)}
+        if(!keepGoing())Result(true,null)else{val delay=if(e is DetectorUnavailable)60_000L else 15*60_000L;if(!manual)prefs(c).edit().putLong("provider-retry-at",System.currentTimeMillis()+delay).apply();Result(false,delay)}
     }
     /** Called under FaceWork's writer lock by both foreground and scheduled processing. */
     fun run(c:Context,store:FaceStore,keepGoing:()->Boolean,signal:CancellationSignal=CancellationSignal(),limit:Int=12,manual:Boolean=false):Result {
@@ -285,12 +301,12 @@ object ContactRecognition {
             val wake=listOf(p.getLong("provider-retry-at",0),p.getLong("retry-at",0)).filter{it>now}.minOrNull()
             return Result(false,wake?.let{it-now})
         }
-        val photos=photos(c,signal,manual)
+        val photos=directory(c,signal,manual)
         prefs(c).edit().putLong("provider-queried-at",System.currentTimeMillis()).putInt("provider-portrait-count",photos.size).putString("last-stage","scanning_portraits").apply()
         // Only a successful complete provider query may discard removed contact references.
         val live=photos.map{it.contact.lookup}.toSet()
         val stale=buildList{store.readableDatabase.rawQuery("SELECT lookup FROM contact_signatures",null).use{while(it.moveToNext())if(it.getString(0) !in live)add(it.getString(0))}}
-        stale.forEach{store.writableDatabase.delete("contact_signatures","lookup=?",arrayOf(it))}
+        FaceWork.write{stale.forEach{store.writableDatabase.delete("contact_signatures","lookup=?",arrayOf(it))}}
         if(stale.isNotEmpty())PeopleData.changed()
         var detector:FaceEngine?=null;var encoder:FaceEncoder?=null
         try{
@@ -306,7 +322,7 @@ object ContactRecognition {
             // could be the competing contact. Let bounded transient retries finish first too.
             if(complete && retry==null && active()){
                 prefs(c).edit().putString("last-stage","matching_groups").apply()
-                if(match(store,references,::active)>0)AutoPeople.dirty(c)
+                FaceWork.write{if(match(store,references,{active() && !FaceWork.readRequested})>0)RecognitionState.dirty(store.writableDatabase)}
                 prefs(c).edit().putString("last-stage",if(active())"complete"else"matching_interrupted").apply()
             }else if(retry!=null)prefs(c).edit().putString("last-stage","waiting_for_portrait_retry").apply()
             if(!permittedRun()){if(!manual && !permitted(c))clear(store);return Result(false,null)}

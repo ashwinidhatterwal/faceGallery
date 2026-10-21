@@ -7,5 +7,5 @@
   "support_email": "ashwinidhatterwal@gmail.com",
   "privacy_policy_url": "https://ashwinidhatterwal.github.io/faceGallery/privacy.html",
   "developer_name": "Ashwini Dhatterwal",
-  "release_notes": "Recognition controls move to the People menu after starting, with live status and Pause/Resume. Repeated Start taps preserve saved work. New photos are processed automatically after completion. Portrait photos use the full viewer area with controls overlaid."
+  "release_notes": "Fixed zero-face photos triggering repeated matching. Recognition repairs resume from saved checkpoints; unchanged refinement plans are reused. Improved background responsiveness, exact match candidates, retry reporting and Pause/Resume. People snapshots no longer depend on video permission. Existing names and corrections are preserved."
 }

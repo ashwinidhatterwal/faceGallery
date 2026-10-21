@@ -33,12 +33,13 @@ open class FaceScanService:Service(){
     private var started=false
     private var destroyed=false
     private var mode=DETECT
-    private var automaticSession=false
+    private var automaticSession=false;private var editingPause=false
     @Volatile private var pauseReason="Paused. Completed results are saved."
     private val timeout=Runnable{pause("Paused at the session time limit. Saved progress will resume automatically.");stopForeground(STOP_FOREGROUND_REMOVE);releaseWake();stopSelf()}
     override fun onBind(intent:Intent?)=null
     override fun onStartCommand(intent:Intent?,flags:Int,startId:Int):Int {
         if(intent?.action in listOf(PAUSE,PAUSE_DAY,EDIT_PAUSE)){
+            editingPause=intent?.action==EDIT_PAUSE
             if(intent?.action==PAUSE)AutoPeople.pauseForDay(this)
             if(intent?.action==PAUSE_DAY)AutoPeople.pauseForDay(this)
             if(!started && FaceJobs.state.background)FaceJobs.publish(FaceJobs.state.copy(pausing=true,message="Pausing…"))
@@ -48,10 +49,9 @@ open class FaceScanService:Service(){
         val requested=intent?.action
         if(requested !in listOf(DETECT,SIGNATURES,GROUP,AUTO)){stopSelf();return START_NOT_STICKY}
         if(!RecognitionConsent.allowed(this)){stopSelf();return START_NOT_STICKY}
-        if(started)return START_NOT_STICKY
-        if(FaceJobs.state.busy){stopSelf();return START_NOT_STICKY}
-        if(requested==AUTO && (!AutoPeople.allowed(this) || !AutoPeople.enabled(this))){stopSelf();return START_NOT_STICKY}
         if(requested!=AUTO)AutoPeople.resume(this)
+        if(started || FaceJobs.state.busy){AutoPeople.ensure(this,0);if(!started)stopSelf();return START_NOT_STICKY}
+        if(requested==AUTO && (!AutoPeople.allowed(this) || !AutoPeople.enabled(this))){stopSelf();return START_NOT_STICKY}
         AutoPeople.ensure(this,0)
         FaceWork.pauseForEdit();started=true;automaticSession=requested==AUTO;mode=if(automaticSession)GROUP else requested!!;continuing=true
         FaceJobs.publish(FaceJobs.State(mode=mode,message="Preparing accessible photos…"))
@@ -70,7 +70,7 @@ open class FaceScanService:Service(){
         val result=GalleryData.load(this,signal,!automaticSession);completeAccess=MediaAccess.fullPhotos(this) && result.unreadableVolumes==0;return result.photos.filterNot{it.isVideo}
     }
     private fun process(){
-        var faces:FaceStore.Summary?=null;var signatures:FaceStore.Signatures?=null
+        var faces:FaceStore.Summary?=null;var signatures:FaceStore.Signatures?=null;var issues=0;var deferred=false
         val photoRate=RecognitionProgress();val groupRate=RecognitionProgress();var lastUpdate=0L;var lastStage=""
         val outcome=runCatching{
             val photos=accessiblePhotos(query);query.throwIfCanceled()
@@ -87,12 +87,14 @@ open class FaceScanService:Service(){
                     }}
                 }
                 fun regroup(budget:Long):Boolean {
+                    if(!FaceWork.read{RecognitionState.needed(store.readableDatabase) && store.signatureSummary().ready>0})return true
                     var interrupted=false;val deadline=SystemClock.elapsedRealtime()+budget
                     FaceWork.write{
                         fun ready():Boolean {val okay=keepGoing() && !FaceWork.readRequested && SystemClock.elapsedRealtime()<deadline;if(!okay)interrupted=true;return okay}
                         PeopleGrouping.run(PeopleStore(store),::ready,reuseComparisons=true,
                             phase={report(RecognitionProgress.Snapshot(it,0,0,"faces"),true)},
                             progress={count,total->report(groupRate.sample("Sorting people",count,total,"faces"))})
+                        if(!interrupted && keepGoing())RecognitionState.grouped(store.writableDatabase,store.evidenceRevision())
                     }
                     main.post{PeopleData.changed()}
                     return !interrupted && keepGoing()
@@ -104,15 +106,13 @@ open class FaceScanService:Service(){
                     try{
                         for((index,photo) in pending.withIndex()){
                             if(!keepGoing())break
-                            FaceWork.write{
-                                if(store.pending(listOf(photo),false).isNotEmpty()){
-                                    val engine=detector?:FaceEngine(applicationContext).also{detector=it}
-                                    FaceProcessing.run(store,listOf(photo),::keepGoing,engine::detect)
-                                }
-                                if(keepGoing() && store.pendingSignatures(listOf(photo),false).isNotEmpty()){
-                                    val engine=encoder?:SignatureEngine(applicationContext).also{encoder=it}
-                                    runCatching{engine.process(store,photo,::keepGoing,retryErrors=false)}
-                                }
+                            if(FaceWork.read{store.pending(listOf(photo),false).isNotEmpty()}){
+                                val engine=detector?:FaceEngine(applicationContext).also{detector=it}
+                                FaceProcessing.run(store,listOf(photo),::keepGoing,engine::detect)
+                            }
+                            if(keepGoing() && FaceWork.read{store.pendingSignatures(listOf(photo),false).isNotEmpty()}){
+                                val engine=encoder?:SignatureEngine(applicationContext).also{encoder=it}
+                                runCatching{engine.process(store,photo,::keepGoing,retryErrors=false)}.onFailure{store.signatureFailure(photo,it,::keepGoing)}
                             }
                             report(photoRate.sample("Recognising photos",index+1,pending.size))
                             if((index+1)%12==0 && keepGoing())regroup(2500)
@@ -126,13 +126,13 @@ open class FaceScanService:Service(){
                         if(mode==DETECT)FaceEngine(applicationContext).use{engine->
                             for((index,photo) in pending.withIndex()){
                                 if(!keepGoing())break
-                                FaceWork.write{FaceProcessing.run(store,listOf(photo),::keepGoing,engine::detect)}
+                                FaceProcessing.run(store,listOf(photo),::keepGoing,engine::detect)
                                 report(photoRate.sample(label,index+1,pending.size))
                             }
                         }else SignatureEngine(applicationContext).use{engine->
                             for((index,photo) in pending.withIndex()){
                                 if(!keepGoing())break
-                                FaceWork.write{runCatching{engine.process(store,photo,::keepGoing)}}
+                                runCatching{engine.process(store,photo,::keepGoing)}.onFailure{store.signatureFailure(photo,it,::keepGoing)}
                                 report(photoRate.sample(label,index+1,pending.size))
                             }
                         }
@@ -146,24 +146,22 @@ open class FaceScanService:Service(){
                         val rate=RecognitionProgress();report(rate.sample("Improving matches",0,retry.size),true)
                         for((index,entry) in retry.withIndex()){
                             if(!keepGoing())break
-                            FaceWork.write{
-                                val (photo,keys)=entry
-                                runCatching{engine.refine(store,photo,keys,::keepGoing)}
-                                if(keepGoing())keys.filter{store.needsRefinement(it)}.forEach{store.refinementFailed(it)}
-                            }
+                            val (photo,keys)=entry
+                            runCatching{engine.refine(store,photo,keys,::keepGoing)}.onFailure{if(it is DetectorUnavailable)throw it}
+                            FaceWork.write{if(keepGoing())keys.filter{store.needsRefinement(it)}.forEach{store.refinementFailed(it)}}
                             report(rate.sample("Improving matches",index+1,retry.size))
                         }
                     }
                     if(keepGoing())while(keepGoing() && !regroup(10_000)){}
-                    if(keepGoing())AutoPeople.grouped(this,AutoPeople.revision(this))
-                    if(keepGoing())FaceWork.write{ContactRecognition.runSafe(this,store,::keepGoing,query,limit=2)}
+                    if(keepGoing()){val contact=ContactRecognition.runSafe(this,store,::keepGoing,query,limit=2);deferred=contact.more || contact.retryDelay!=null}
                 }
                 faces=FaceWork.read{store.summary()};signatures=FaceWork.read{store.signatureSummary()}
+                val counts=FaceWork.read{store.workCounts(photos)};issues=counts.failed;deferred=deferred || store.nextRetryDelay(photos)!=null || FaceWork.read{store.pending(photos,false).isNotEmpty() || store.pendingSignatures(photos,false).isNotEmpty()}
             }
         }
         PeopleData.changed();AutoPeople.ensure(this,1000)
-        val message=if(!continuing)pauseReason else outcome.fold({"Recognition finished."},{"Recognition stopped. Saved progress is kept; tap Resume to retry."})
-        main.post{finishJob(message,faces,signatures)}
+        val message=if(!continuing)pauseReason else outcome.fold({if(deferred)"Waiting to retry unfinished photos."else if(issues>0)"Checked with $issues photos needing attention."else"Recognition finished."},{"Recognition stopped. Saved progress is kept; tap Resume to retry."})
+        main.post{finishJob(message,faces,signatures,issues)}
     }
     private fun keepGoing():Boolean {
         if(!continuing || !AutoPeople.enabled(this))return false
@@ -178,12 +176,12 @@ open class FaceScanService:Service(){
     }
     private fun notification(message:String,count:Int,total:Int):Notification =
         FaceNotifications.running(this,RecognitionProgress.Snapshot(message,count,total))
-    private fun finishJob(message:String,faces:FaceStore.Summary?=null,signatures:FaceStore.Signatures?=null){
-        continuing=false;main.removeCallbacks(timeout);releaseWake()
+    private fun finishJob(message:String,faces:FaceStore.Summary?=null,signatures:FaceStore.Signatures?=null,issues:Int=0){
+        continuing=false;main.removeCallbacks(timeout);releaseWake();if(!editingPause && AutoPeople.enabled(this))FaceWork.clearCooldown()
         FaceJobs.publish(FaceJobs.State(message=message,faces=faces,signatures=signatures))
         stopForeground(STOP_FOREGROUND_REMOVE)
         if(AutoPeople.pauseUntil(this)>System.currentTimeMillis())FaceNotifications.paused(this)
-        else if(message=="Recognition finished.")FaceNotifications.finished(this)
+        else if(message=="Recognition finished." || message.startsWith("Checked with"))FaceNotifications.finished(this,issues)
         else if(AutoPeople.enabled(this))FaceNotifications.waiting(this,message)
         stopSelf()
     }

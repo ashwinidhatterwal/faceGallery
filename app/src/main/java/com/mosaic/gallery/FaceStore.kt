@@ -5,18 +5,18 @@ import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 
-class FaceStore(private val context:Context,private val now:()->Long=System::currentTimeMillis):SQLiteOpenHelper(context,"faces.db",null,12),java.io.Closeable{
+class FaceStore(private val context:Context,private val now:()->Long=System::currentTimeMillis):SQLiteOpenHelper(context,"faces.db",null,13),java.io.Closeable{
     fun contactReferences()=ContactRecognition.references(context,readableDatabase)
     companion object{
         const val MODEL="mlkit-16.1.7-accurate-1600-quality1"
         fun fingerprint(photo:PhotoRecord)="${photo.modifiedMillis}:${photo.sizeBytes}:${photo.width}:${photo.height}:${photo.dateTakenMillis}"
     }
-    private fun changed(uri:String?=null){if(uri!=null)PeopleData.facesChanged(uri)else PeopleData.changed();AutoPeople.dirty(context)}
+    private fun changed(uri:String?=null){if(uri!=null)PeopleData.facesChanged(uri)else PeopleData.changed();}
     override fun onConfigure(db:SQLiteDatabase){db.setForeignKeyConstraintsEnabled(true)}
     override fun onCreate(db:SQLiteDatabase){
         db.execSQL("CREATE TABLE photos(uri TEXT PRIMARY KEY,fingerprint TEXT NOT NULL,model TEXT NOT NULL,status TEXT NOT NULL,error TEXT)")
         db.execSQL("CREATE TABLE faces(uri TEXT NOT NULL REFERENCES photos(uri) ON DELETE CASCADE,ordinal INTEGER NOT NULL,l REAL,t REAL,r REAL,b REAL,yaw REAL,pitch REAL,roll REAL,sharpness REAL,score REAL,authority TEXT,landmarks BLOB,PRIMARY KEY(uri,ordinal))")
-        createEmbeddings(db);PeopleStore.create(db);createRetries(db);createDurable(db);ContactRecognition.create(db);createContactHints(db);PeopleRevision.create(db);PeopleData.changed()
+        createEmbeddings(db);PeopleStore.create(db);createRetries(db);createDurable(db);ContactRecognition.create(db);createContactHints(db);PeopleRevision.create(db);RecognitionState.create(db);PeopleData.changed()
     }
     override fun onUpgrade(db:SQLiteDatabase,oldVersion:Int,newVersion:Int){
         if(oldVersion<2){db.execSQL("ALTER TABLE faces ADD COLUMN landmarks BLOB");createEmbeddings(db)}
@@ -41,6 +41,7 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
         }
         if(oldVersion<11)createContactHints(db)
         if(oldVersion<12)PeopleRevision.create(db)
+        if(oldVersion<13)RecognitionState.create(db)
     }
     private fun createDurable(db:SQLiteDatabase){
         db.execSQL("CREATE TABLE IF NOT EXISTS operation_retries(uri TEXT NOT NULL,ordinal INTEGER NOT NULL,phase TEXT NOT NULL,fingerprint TEXT NOT NULL,model TEXT NOT NULL,attempts INTEGER NOT NULL,next_time INTEGER NOT NULL,PRIMARY KEY(uri,ordinal,phase))")
@@ -53,7 +54,34 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
         val count=old+1
         db.insertWithOnConflict("operation_retries",null,ContentValues().apply{put("uri",uri);put("ordinal",ordinal);put("phase",phase);put("fingerprint",fp);put("model",FaceVectors.MODEL);put("attempts",count);put("next_time",now()+when(count){1->60_000L;2->300_000L;else->1_800_000L})},SQLiteDatabase.CONFLICT_REPLACE)
     }
-    fun nextRetryDelay():Long?=readableDatabase.rawQuery("SELECT MIN(next_time) FROM operation_retries WHERE attempts<3 AND model=?",arrayOf(FaceVectors.MODEL)).use{if(it.moveToFirst() && !it.isNull(0))maxOf(60_000L,it.getLong(0)-now())else null}
+    fun nextRetryDelay(photos:List<PhotoRecord>?=null):Long? {
+        val access=photos?.associateBy{it.uri.toString()};var next:Long?=null
+        readableDatabase.rawQuery("SELECT uri,ordinal,phase,next_time,fingerprint FROM operation_retries WHERE attempts<3 AND model=?",arrayOf(FaceVectors.MODEL)).use{c->while(c.moveToNext()){
+            val uri=c.getString(0);val photo=access?.get(uri);if(access!=null && photo==null)continue
+            val relevant=when(c.getString(2)){
+                "detect"->photo==null || (c.getString(4)==fingerprint(photo) && pending(listOf(photo),true).isNotEmpty())
+                "encode"->hasCurrentFace(uri,c.getInt(1)) && needsSignature(uri,c.getInt(1))
+                "refine"->hasCurrentFace(uri,c.getInt(1)) && readableDatabase.rawQuery("SELECT 1 FROM signature_retries WHERE uri=? AND ordinal=? AND model=?",arrayOf(uri,c.getInt(1).toString(),"hq1-${FaceVectors.MODEL}")).use{!it.moveToFirst()}
+                else->false
+            }
+            if(relevant)next=minOf(next?:Long.MAX_VALUE,c.getLong(3))
+        }}
+        return next?.let{maxOf(60_000L,it-now())}
+    }
+    private fun hasCurrentFace(uri:String,ordinal:Int)=android.database.DatabaseUtils.longForQuery(readableDatabase,"SELECT EXISTS(SELECT 1 FROM faces f JOIN photos p ON p.uri=f.uri WHERE f.uri=? AND f.ordinal=? AND p.status='done')",arrayOf(uri,ordinal.toString()))>0
+    data class WorkCounts(val done:Int,val total:Int,val failed:Int,val pending:Int)
+    fun workCounts(photos:List<PhotoRecord>):WorkCounts {
+        val images=photos.filterNot{it.isVideo};val raw=(pending(images,true)+pendingSignatures(images,true)).map{it.uri.toString()}.toSet()
+        val access=images.map{it.uri.toString()}.toSet();val errors=mutableSetOf<String>()
+        readableDatabase.rawQuery("SELECT uri FROM photos WHERE status='error' UNION SELECT uri FROM embeddings WHERE status='error'",null).use{c->while(c.moveToNext())if(c.getString(0) in access)errors+=c.getString(0)}
+        return WorkCounts(images.size-raw.size,images.size,errors.size,raw.size)
+    }
+    fun signatureFailure(photo:PhotoRecord,error:Throwable,canCommit:()->Boolean){
+        if(error is DetectorUnavailable)throw error
+        FaceWork.write{if(canCommit())observations(photo.uri.toString()).forEachIndexed{i,f->if(f.authority!="Shadow" && needsSignature(photo.uri.toString(),i))saveSignature(photo.uri.toString(),i,null,"error",error.javaClass.simpleName)}}
+    }
+    internal fun evidenceRevision()=RecognitionState.revision(readableDatabase)
+
     fun refinementFailed(key:GroupRules.Key){failed(key.uri,key.ordinal,"refine")}
     private fun snapshotAssertions(uri:String){
         writableDatabase.execSQL("INSERT OR REPLACE INTO identity_assertions(uri,ordinal,person,status,vector,model,l,t,r,b,fingerprint) SELECT f.uri,f.ordinal,m.person,m.status,e.vector,COALESCE(e.model,?),f.l,f.t,f.r,f.b,p.fingerprint FROM faces f JOIN photos p ON p.uri=f.uri JOIN membership m ON m.uri=f.uri AND m.ordinal=f.ordinal LEFT JOIN embeddings e ON e.uri=f.uri AND e.ordinal=f.ordinal WHERE f.uri=? AND m.manual=1",arrayOf(FaceVectors.MODEL,uri))
@@ -103,6 +131,7 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
             statement.use{photos.forEach{photo->it.bindString(1,photo.uri.toString());it.bindString(2,fingerprint(photo));it.executeInsert()}}
             db.execSQL("UPDATE photos SET status='stale' WHERE status!='stale' AND EXISTS(SELECT 1 FROM accessible WHERE accessible.uri=photos.uri AND (accessible.fingerprint!=photos.fingerprint OR photos.model!=?))",arrayOf(MODEL))
             val stale=android.database.DatabaseUtils.longForQuery(db,"SELECT changes()",null)>0
+            if(stale && android.database.DatabaseUtils.longForQuery(db,"SELECT EXISTS(SELECT 1 FROM faces f JOIN photos p ON p.uri=f.uri WHERE p.status='stale')",null)>0)RecognitionState.dirty(db)
             val removed=if(removeMissing){
                 db.execSQL("DELETE FROM identity_assertions WHERE NOT EXISTS (SELECT 1 FROM accessible WHERE accessible.uri=identity_assertions.uri)")
                 db.execSQL("DELETE FROM operation_retries WHERE NOT EXISTS (SELECT 1 FROM accessible WHERE accessible.uri=operation_retries.uri)")
@@ -156,7 +185,9 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
     fun pendingSignatures(photos:List<PhotoRecord>,retryErrors:Boolean=true):List<PhotoRecord>{
         val uris=mutableSetOf<String>()
         readableDatabase.rawQuery("SELECT DISTINCT f.uri FROM faces f LEFT JOIN embeddings e ON f.uri=e.uri AND f.ordinal=e.ordinal WHERE f.authority!='Shadow' AND (e.uri IS NULL OR e.model!=? OR e.status='error')",arrayOf(FaceVectors.MODEL)).use{while(it.moveToNext())uris+=it.getString(0)}
-        return photos.filter{it.uri.toString() in uris && it !in pending(photos) && (retryErrors || observations(it.uri.toString()).indices.any{i->needsSignature(it.uri.toString(),i) && retryAllowed(it.uri.toString(),i,"encode")})}
+        if(uris.isEmpty())return emptyList()
+        val detectionPending=pending(photos).mapTo(hashSetOf()){it.uri.toString()}
+        return photos.filter{it.uri.toString() in uris && it.uri.toString() !in detectionPending && (retryErrors || observations(it.uri.toString()).indices.any{i->needsSignature(it.uri.toString(),i) && retryAllowed(it.uri.toString(),i,"encode")})}
     }
     fun encodingDue(uri:String,ordinal:Int)=retryAllowed(uri,ordinal,"encode")
     fun needsSignature(uri:String,ordinal:Int):Boolean = readableDatabase.rawQuery("SELECT status,model FROM embeddings WHERE uri=? AND ordinal=?",arrayOf(uri,ordinal.toString())).use{!it.moveToFirst() || it.getString(1)!=FaceVectors.MODEL || it.getString(0)=="error"}
@@ -187,5 +218,5 @@ class FaceStore(private val context:Context,private val now:()->Long=System::cur
     fun <T> snapshot(read:()->T):T=FaceWork.read{val db=readableDatabase;db.beginTransactionNonExclusive();try{return@read read()}finally{db.endTransaction()}}
     fun comparisonCheckpoint()=android.util.AtomicFile(java.io.File(context.filesDir,"people-comparisons.json"))
     internal fun clearPeopleUi(){PeopleActivity.clearSaved(context)}
-    fun clear(){val db=writableDatabase;db.beginTransaction();try{PeopleStore(this).reset();db.delete("identity_assertions",null,null);db.delete("operation_retries",null,null);db.delete("photos",null,null);db.setTransactionSuccessful()}finally{db.endTransaction()};changed()}
+    fun clear(){val db=writableDatabase;db.beginTransaction();try{PeopleStore(this).reset();db.delete("identity_assertions",null,null);db.delete("operation_retries",null,null);db.delete("photos",null,null);db.delete("recognition_refinement_plan",null,null);db.delete("recognition_repairs",null,null);db.delete("recognition_contacts",null,null);db.setTransactionSuccessful()}finally{db.endTransaction()};comparisonCheckpoint().delete();changed()}
 }

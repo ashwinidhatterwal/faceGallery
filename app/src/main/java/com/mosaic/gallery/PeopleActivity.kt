@@ -142,6 +142,7 @@ class PeopleActivity:Activity(){
         AutoPeople.pauseUntil(this)>System.currentTimeMillis()->"Paused · resumes "+java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT,java.text.DateFormat.SHORT).format(java.util.Date(AutoPeople.pauseUntil(this)))
         state.busy || FaceWork.automatic->state.progress?.text()?:state.message.ifBlank{"In progress"}
         !AutoPeople.enabled(this)->"Paused"
+        state.message.isNotBlank() && state.message !in setOf("Recognition finished.","People are up to date")->state.message
         else->"Watching for new photos"
     }
     private fun showRecognitionStatus(){
@@ -185,18 +186,21 @@ class PeopleActivity:Activity(){
         }
         fun clearSaved(context:android.content.Context){cache.clear();duplicateCache.clear();invalidateSaved(context)}
         fun invalidateSaved(context:android.content.Context){snapshotFile(context).delete();PeopleLaunchCache.clear(context)}
-        private fun photoStamp(photos:List<PhotoRecord>)=java.security.MessageDigest.getInstance("SHA-256").run{photos.forEach{update((it.uri.toString()+":"+FaceStore.fingerprint(it)+"\n").toByteArray(Charsets.UTF_8))};digest().joinToString(""){"%02x".format(it)}}
+        private fun photoAccess(context:android.content.Context)="${context.filesDir}:${MediaAccess.fullPhotos(context)}:${context.checkSelfPermission(android.Manifest.permission.READ_CONTACTS)}"
+        private fun photoStamp(photos:List<PhotoRecord>)=java.security.MessageDigest.getInstance("SHA-256").run{photos.filterNot{it.isVideo}.forEach{update((it.uri.toString()+":"+FaceStore.fingerprint(it)+"\n").toByteArray(Charsets.UTF_8))};digest().joinToString(""){"%02x".format(it)}}
         private fun stamp(context:android.content.Context):String = FaceWork.read{FaceStore(context).use{PeopleRevision.value(it.readableDatabase)}}
         private fun snapshotFile(context:android.content.Context)=android.util.AtomicFile(java.io.File(context.noBackupFilesDir,"people-view.bin"))
         private fun saved(context:android.content.Context):ViewData? {
-            if(!MediaAccess.cacheable(context))return null
+            if(!MediaAccess.fullPhotos(context))return null
             return runCatching {
                 val file=snapshotFile(context);check(file.baseFile.length()<=64L*1024*1024)
                 java.io.ObjectInputStream(java.io.BufferedInputStream(file.openRead())).use{input->
-                    check(input.readInt()==1);check(input.readUTF()==PeopleData.access(context))
+                    check(input.readInt()==2);check(input.readUTF()==photoAccess(context))
                     check(input.readUTF()==GroupRules.VERSION);val version=input.readUTF();val mediaStamp=input.readUTF()
+                    val count=input.readInt();check(count in 0..1_000_000)
+                    val photos=List(count){PhotoIndex.readPhoto(input)}
                     val value=input.readObject() as ViewData
-                    val photos=PhotoIndex.read(context)?.photos?:return null
+                    PhotoIndex.read(context)?.photos?.let{check(mediaStamp==photoStamp(it))}
                     check(mediaStamp==photoStamp(photos));value.copy(photos=photos.associateBy{it.uri.toString()}).also{it.diskStamp=version;it.mediaStamp=mediaStamp;it.groups();it.profileCards();PeopleReadDiagnostics.metric(context,"snapshot_restores")}
                 }
             }.getOrNull()
@@ -207,12 +211,13 @@ class PeopleActivity:Activity(){
         private fun persist(context:android.content.Context,data:ViewData,revision:Long){
             if(revision!=PeopleData.version || data.diskStamp!=stamp(context))return
             saveLaunch(context,data)
-            if(!MediaAccess.cacheable(context))return
+            if(!MediaAccess.fullPhotos(context))return
             val file=snapshotFile(context);var stream:java.io.FileOutputStream?=null
             runCatching {
                 stream=file.startWrite()
                 val output=java.io.ObjectOutputStream(java.io.BufferedOutputStream(stream))
-                output.writeInt(1);output.writeUTF(PeopleData.access(context));output.writeUTF(GroupRules.VERSION);output.writeUTF(data.diskStamp);output.writeUTF(data.mediaStamp)
+                output.writeInt(2);output.writeUTF(photoAccess(context));output.writeUTF(GroupRules.VERSION);output.writeUTF(data.diskStamp);output.writeUTF(data.mediaStamp)
+                val photos=data.photos.values.filterNot{it.isVideo};output.writeInt(photos.size);photos.forEach{PhotoIndex.writePhoto(output,it)}
                 output.writeObject(data);output.flush();file.finishWrite(stream);PeopleReadDiagnostics.metric(context,"snapshot_saves")
             }.onFailure{file.failWrite(stream);PeopleReadDiagnostics.record(context,it)}
         }
@@ -400,11 +405,13 @@ class PeopleActivity:Activity(){
         worker.execute{
             val result=runCatching{
                 val photos=GalleryData.load(this,CancellationSignal()).photos
-                FaceStore(this).use{f->f.snapshot{
+                FaceStore(this).use{f->
+                    val contactReport=ContactRecognition.diagnostics(this,f)
+                    f.snapshot{
                     val store=PeopleStore(f)
                     val valid=photos.map{it.uri.toString()}.toSet()-f.pending(photos).map{it.uri.toString()}.toSet()
                     val rows=store.members().filter{it.key.uri in valid};val roots=store.components(rows);val groups=store.capsules(rows,roots)
-                    org.json.JSONObject(RecognitionMetrics.report(store,rows,roots,groups,IdentityEvidence.provisional(groups,rows,store.established(roots)))).put("contact_processing",ContactRecognition.diagnostics(this,f)).put("people_reads",PeopleReadDiagnostics.read(this)).toString(2)
+                    org.json.JSONObject(RecognitionMetrics.report(store,rows,roots,groups,IdentityEvidence.provisional(groups,rows,store.established(roots)))).put("contact_processing",contactReport).put("people_reads",PeopleReadDiagnostics.read(this)).toString(2)
                 }}
             }
             runOnUiThread{if(active)result.onSuccess{

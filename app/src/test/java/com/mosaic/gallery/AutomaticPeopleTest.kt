@@ -115,7 +115,7 @@ class AutomaticPeopleTest {
     @Test fun upgradeReconsidersPreviouslyCompletedGroupingOnce(){
         val prefs=app.getSharedPreferences("automatic-people",0)
         prefs.edit().putLong("revision",8).putLong("grouped",8).commit()
-        assertTrue(AutoPeople.needsGrouping(app));AutoPeople.grouped(app,8)
+        assertTrue(AutoPeople.needsGrouping(app));AutoPeople.grouped(app,AutoPeople.revision(app))
         assertFalse(AutoPeople.needsGrouping(app))
     }
     class Pipeline:AutoPeopleJob(){

@@ -49,7 +49,7 @@ class ContactDiagnosticsActivity:Activity() {
         search.addTextChangedListener(object:TextWatcher{override fun beforeTextChanged(s:CharSequence?,start:Int,count:Int,after:Int){};override fun onTextChanged(s:CharSequence?,start:Int,before:Int,count:Int){render()};override fun afterTextChanged(s:Editable?){} })
         fun load() {
             worker.execute {
-                val result=runCatching{FaceStore(this).use{f->PeopleStore(f).snapshot{ContactRecognition.diagnostics(this,f,names=true)}}}
+                val result=runCatching{FaceStore(this).use{f->ContactRecognition.diagnostics(this,f,names=true)}}
                 runOnUiThread {
                     if(closed || isFinishing || isDestroyed)return@runOnUiThread
                     result.onSuccess { report->
@@ -79,7 +79,7 @@ class ContactDiagnosticsActivity:Activity() {
                 button.isEnabled=false;message.text="Checking this photo…"
                 worker.execute {
                     val result=runCatching {
-                        FaceWork.write {
+                        run {
                             fun active()=!closed && !signal.isCanceled && !FaceJobs.state.busy
                             check(active()){"Try again when recognition is idle"}
                             FaceStore(applicationContext).use{ContactRecognition.recheck(applicationContext,it,entry.getString("contact_tag"),::active,signal)}
